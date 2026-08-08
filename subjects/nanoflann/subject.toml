@@ -1,0 +1,74 @@
+# nanoflann — an unwilling subject.
+#
+# nanoflann has never heard of this project and will never ship a manifest. The
+# engine therefore carries everything: the pinned upstream ref, a shim that
+# exposes a uniform CLI, and the case declarations. This is the common case, not
+# the exception, which is why the manifest format has to be data rather than a
+# trait a subject implements.
+#
+# Compare with subjects/kiddo/subject.toml: the two are structurally identical
+# apart from the adapter, which is exactly the intent.
+
+schema = 1
+name = "nanoflann"
+domain = "spatial_index"
+
+[source]
+kind = "git"
+repo = "https://github.com/jlblancoc/nanoflann"
+pinned_ref = "v1.7.1"
+
+[build]
+kind = "cxx-shim"
+shim = "shim.cpp"
+std = "c++17"
+flags = ["-O3", "-march=native", "-DNDEBUG"]
+
+# nanoflann templates its index on dimensionality, so the shim compiles one
+# specialisation per `dims` the cases below use and dispatches at runtime.
+compile_time_dims = [3, 4]
+
+[vocab]
+# nanoflann's own knobs. Namespaced, so `nanoflann.leaf_max_size` never collides
+# with `kiddo.bucket` even though both are "leaf capacity".
+# Not compile_time: the shim dispatches on it at run time.
+leaf_max_size.kind = "int"
+
+# Single-phase: C++ templates are resolved by the shim's own dispatch, so there
+# is nothing for the engine to generate.
+[driver]
+adapter = "exec"
+crate = "spatial-bench-nanoflann"
+
+[[case]]
+runners = ["criterion", "perf"]
+
+# The shim speaks the engine's output contract on stdout; params are templated
+# in. Adding a language means adding a driver and a manifest, not engine code.
+command = [
+  "{shim_bin}",
+  "--query=exact_nn",
+  "--k={k}",
+  "--dims={dims}",
+  "--axis={axis}",
+  "--points={tree_size}",
+  "--queries={query_count}",
+  "--leaf-max-size={nanoflann.leaf_max_size}",
+]
+output = "spatial-bench-jsonl"
+
+matrix.axis = ["f32", "f64"]
+matrix.k = [1, 5, 20, 50]
+
+tags.impl = "nanoflann"
+tags.query = "exact_nn"
+tags.dims = 3
+tags.idx = "u64"
+tags.metric = "squared_euclidean"
+tags.isa = "avx512"
+tags."nanoflann.leaf_max_size" = 32
+
+params.tree_size.range = "2^16..2^29"
+params.tree_size.default = "2^20"
+params.query_count.kind = "int"
+params.query_count.default = 1000
