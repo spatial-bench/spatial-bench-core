@@ -126,8 +126,71 @@ impl Picker {
         }
     }
 
-    /// The non-interactive equivalent of the current selection. This is the line
-    /// printed for reuse in CI, so it must parse back to the same selection.
+    /// The selection with clauses that narrow nothing removed.
+    ///
+    /// The picker pins a key whenever you touch it, including keys with only one
+    /// reachable value, so a fully-explored selection accumulates a clause per
+    /// facet. Echoing all of them produces a repro line too long to read or
+    /// paste. A clause whose removal leaves the point set unchanged is dropped:
+    /// the shortened expression selects exactly the same points.
+    pub fn minimal(&self, catalog: &Catalog) -> SelectorSet {
+        let full = self.selection();
+        let target = catalog.points(&full).len();
+        let mut kept = self.chosen.clone();
+
+        // Reverse order so indices stay valid while removing.
+        for index in (0..kept.len()).rev() {
+            let mut without = kept.clone();
+            without.remove(index);
+            let candidate = if without.is_empty() {
+                SelectorSet::default()
+            } else {
+                SelectorSet {
+                    selectors: vec![Selector {
+                        clauses: without.clone(),
+                    }],
+                }
+            };
+            if catalog.points(&candidate).len() == target {
+                kept = without;
+            }
+        }
+
+        if kept.is_empty() {
+            SelectorSet::default()
+        } else {
+            SelectorSet {
+                selectors: vec![Selector { clauses: kept }],
+            }
+        }
+    }
+
+    /// The non-interactive equivalent of the current selection, minimised.
+    ///
+    /// This is the line printed for reuse in CI, so it must parse back to a
+    /// selection producing the same points.
+    pub fn command_for(&self, runner: Runner, catalog: &Catalog) -> String {
+        let minimal = self.minimal(catalog);
+        Self::render(runner, &minimal)
+    }
+
+    fn render(runner: Runner, selection: &SelectorSet) -> String {
+        let runner = match runner {
+            Runner::Criterion => "criterion",
+            Runner::Perf => "perf",
+            Runner::Asm => "asm",
+            Runner::Mca => "mca",
+        };
+        if selection.selectors.is_empty() {
+            return format!("spatial-bench run --runner {runner}");
+        }
+        format!(
+            "spatial-bench run --runner {runner} --select '{}'",
+            selection.to_exprs().join("' --select '")
+        )
+    }
+
+    /// Unminimised form, for tests and callers with no catalog to hand.
     pub fn command(&self, runner: Runner) -> String {
         let runner = match runner {
             Runner::Criterion => "criterion",
@@ -305,6 +368,44 @@ mod tests {
             Selector::parse(expr).unwrap(),
             picker.selection().selectors[0]
         );
+    }
+
+    /// A selection that pins every facet must still print a readable line. Only
+    /// the clauses that actually narrow the point set survive.
+    #[test]
+    fn the_repro_line_drops_clauses_that_narrow_nothing() {
+        let catalog = catalog();
+        let mut picker = Picker::new();
+        // Pin every facet, as walking the whole menu does.
+        for facet in Picker::new().facets(&catalog) {
+            if let Some(first) = facet.values.first() {
+                picker.choose(&facet.key, vec![first.clone()]);
+            }
+        }
+        let full = picker.selection();
+        let minimal = picker.minimal(&catalog);
+
+        assert!(
+            full.selectors[0].clauses.len() >= 14,
+            "the picker pinned everything"
+        );
+        assert!(
+            minimal.selectors[0].clauses.len() < full.selectors[0].clauses.len(),
+            "redundant clauses should be dropped"
+        );
+        assert_eq!(
+            catalog.points(&minimal).len(),
+            catalog.points(&full).len(),
+            "minimising must not change what is selected"
+        );
+
+        // `dims` has one reachable value, so constraining it narrows nothing.
+        let keys: Vec<String> = minimal.selectors[0]
+            .clauses
+            .iter()
+            .map(|c| c.key.to_string())
+            .collect();
+        assert!(!keys.contains(&"dims".to_string()), "got {keys:?}");
     }
 
     #[test]

@@ -4,25 +4,13 @@ use crate::tag::{TagMap, TagValue};
 use serde::Serialize;
 use std::time::Duration;
 
-/// Per-point time budget, mirroring criterion's own knobs so an estimate tracks
-/// whatever the run will actually be told to do.
-#[derive(Clone, Copy, Debug)]
-pub struct Budget {
-    pub warm_up: Duration,
-    pub measurement: Duration,
-    /// Process start plus tree build, paid once per point under `perf`.
-    pub process_overhead: Duration,
-}
+/// Process start plus tree build, paid per point under `perf`.
+const PROCESS_OVERHEAD_MS: u64 = 2_000;
 
-impl Default for Budget {
-    fn default() -> Self {
-        Self {
-            warm_up: Duration::from_secs(3),
-            measurement: Duration::from_secs(5),
-            process_overhead: Duration::from_secs(2),
-        }
-    }
-}
+/// The budget is the harness contract's, not a second one: an estimate that
+/// could disagree with what a driver is actually told to do is worse than no
+/// estimate at all.
+pub use crate::harness::Budget;
 
 /// Which measurement backend can drive a case.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -224,9 +212,12 @@ impl Case {
     /// Compile time is not included -- it is amortised across every case
     /// sharing a subject and cannot be attributed to one case.
     pub fn estimate(&self, runner: Runner, points: usize, budget: &Budget) -> Duration {
+        let per_point = Duration::from_millis(budget.warm_up_ms + budget.measurement_ms);
         let per_point = match runner {
-            Runner::Criterion => budget.warm_up + budget.measurement,
-            Runner::Perf => budget.warm_up + budget.measurement + budget.process_overhead,
+            Runner::Criterion => per_point,
+            // perf attributes counters to a process, so it pays process start
+            // and tree build once per point rather than once per sweep.
+            Runner::Perf => per_point + Duration::from_millis(PROCESS_OVERHEAD_MS),
             Runner::Asm | Runner::Mca => Duration::ZERO,
         };
         per_point * points as u32

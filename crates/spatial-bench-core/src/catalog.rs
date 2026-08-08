@@ -7,11 +7,46 @@ use crate::tag::TagMap;
 pub struct Catalog {
     cases: Vec<Case>,
     vocab: crate::vocab::Vocabulary,
+    subjects: std::collections::BTreeMap<String, SubjectFacts>,
+}
+
+/// Per-subject facts a build needs, kept from the manifest after lowering.
+#[derive(Clone, Debug, Default)]
+pub struct SubjectFacts {
+    pub pinned_ref: String,
+    pub features: Vec<String>,
+    pub min_rustc: Option<String>,
 }
 
 impl Catalog {
-    pub fn new(cases: Vec<Case>, vocab: crate::vocab::Vocabulary) -> Self {
-        Self { cases, vocab }
+    pub fn new(
+        cases: Vec<Case>,
+        vocab: crate::vocab::Vocabulary,
+        subjects: std::collections::BTreeMap<String, SubjectFacts>,
+    ) -> Self {
+        Self {
+            cases,
+            vocab,
+            subjects,
+        }
+    }
+
+    /// The revision a subject is pinned to.
+    pub fn pinned_ref(&self, subject: &str) -> Option<String> {
+        self.subjects.get(subject).map(|f| f.pinned_ref.clone())
+    }
+
+    /// Cargo features a subject is built with.
+    pub fn features(&self, subject: &str) -> Vec<String> {
+        self.subjects
+            .get(subject)
+            .map(|f| f.features.clone())
+            .unwrap_or_default()
+    }
+
+    /// Lowest rustc a subject builds with, if it declares one.
+    pub fn min_rustc(&self, subject: &str) -> Option<String> {
+        self.subjects.get(subject).and_then(|f| f.min_rustc.clone())
     }
 
     /// An empty catalog. Cases only ever arrive by loading vendored subject
@@ -20,6 +55,7 @@ impl Catalog {
         Self {
             cases: Vec::new(),
             vocab: crate::vocab::Vocabulary::default(),
+            subjects: Default::default(),
         }
     }
 

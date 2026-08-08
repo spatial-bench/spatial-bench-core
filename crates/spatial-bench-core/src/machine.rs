@@ -208,6 +208,12 @@ impl Machine {
     }
 }
 
+/// Hash arbitrary bytes with the same function the machine hash uses, so a run
+/// id and a machine hash cannot disagree about what hashing means here.
+pub fn hash_bytes(bytes: &[u8]) -> blake3::Hash {
+    blake3::hash(bytes)
+}
+
 /// Six characters of Crockford-style base32, lowercase. ~1e9 values: ample for a
 /// personal fleet, short enough to sit in a filename.
 fn base32_6(bytes: &[u8]) -> String {

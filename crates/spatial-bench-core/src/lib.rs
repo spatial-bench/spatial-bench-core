@@ -12,6 +12,7 @@
 //!    measured at all.
 
 pub mod adapter;
+pub mod build;
 pub mod case;
 pub mod catalog;
 pub mod catalog_load;

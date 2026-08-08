@@ -54,6 +54,9 @@ pub struct Driver {
     /// Crate in the engine that provides the driver.
     #[serde(rename = "crate")]
     pub crate_name: String,
+    /// Cargo features the subject is built with.
+    #[serde(default)]
+    pub features: Vec<String>,
     /// Two-phase only: the macro a generated `main.rs` invokes, once per
     /// selected compile-time combination.
     #[serde(rename = "macro")]

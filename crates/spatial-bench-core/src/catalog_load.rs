@@ -45,6 +45,7 @@ pub fn load_dir(dir: &Path) -> Result<Catalog, ManifestError> {
 
     let mut vocab = Vocabulary::default();
     let mut cases = Vec::new();
+    let mut subjects: BTreeMap<String, crate::catalog::SubjectFacts> = BTreeMap::new();
     for subject_dir in entries {
         let path = subject_dir.join("subject.toml");
         if !path.exists() {
@@ -58,6 +59,17 @@ pub fn load_dir(dir: &Path) -> Result<Catalog, ManifestError> {
                 subject: manifest.name.clone(),
                 key: format!("{e:?}"),
             })?;
+        subjects.insert(
+            manifest.name.clone(),
+            crate::catalog::SubjectFacts {
+                pinned_ref: manifest.source.pinned_ref.clone(),
+                features: manifest.driver.features.clone(),
+                min_rustc: manifest
+                    .toolchain
+                    .as_ref()
+                    .and_then(|t| t.min_rustc.clone()),
+            },
+        );
         cases.extend(subject_cases);
     }
 
@@ -79,7 +91,7 @@ pub fn load_dir(dir: &Path) -> Result<Catalog, ManifestError> {
         }
     }
 
-    Ok(Catalog::new(cases, vocab))
+    Ok(Catalog::new(cases, vocab, subjects))
 }
 
 /// Turn one manifest into concrete cases, expanding `matrix` into the cartesian

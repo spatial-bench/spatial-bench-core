@@ -31,6 +31,7 @@ pinned_ref = "v6.0.0-alpha.4"
 adapter = "rust-codegen"
 crate = "spatial-bench-kiddo-v6"
 macro = "bench_case"
+features = ["test_utils"]
 # Core keys that are generic parameters for kiddo specifically. KdTree
 # monomorphises on scalar type, dimensionality and index type; a subject that
 # dispatched on them at run time would list none of them here.

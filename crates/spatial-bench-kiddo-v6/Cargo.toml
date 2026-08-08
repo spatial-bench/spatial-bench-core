@@ -12,11 +12,13 @@ license = "MIT OR Apache-2.0"
 # The engine owns the harness, so the measurement code lives here and kiddo
 # contributes only its public API. kiddo never depends on this crate.
 
+# No kiddo dependency: every reference to it is inside a macro_rules body and
+# expands at the call site, so only the *generated* crate needs kiddo. That is
+# what lets the CLI point a build at a pinned ref or a working tree without this
+# crate hardcoding a path to either.
+
 [dependencies]
 spatial-bench-core = { path = "../spatial-bench-core" }
-# Overridden by the CLI to the subject's pinned ref, or to a working tree under
-# --subject-path.
-kiddo = { path = "../../../kiddo", features = ["test_utils"] }
 rand = "0.10"
 rand_chacha = "0.10"
 serde_json = "1"
