@@ -153,30 +153,23 @@ pub fn measure(
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __kiddo_stem {
-    (eytzinger) => {
-        ::kiddo::Eytzinger
+    // Eytzinger has no block height; the axis exists for the Donnelly family
+    // and is ignored here rather than being a separate case shape.
+    (eytzinger, $bh:literal) => { ::kiddo::Eytzinger };
+    (eytzinger_nopf, $bh:literal) => { ::kiddo::EytzingerNoPf };
+    (donnelly, $bh:literal) => { ::kiddo::Donnelly<$bh> };
+    (donnelly_nopf, $bh:literal) => { ::kiddo::DonnellyNoPf<$bh> };
+    (donnelly_unrolled, $bh:literal) => { ::kiddo::DonnellyUnrolled<$bh> };
+    (donnelly_unrolled_block_dim, $bh:literal) => { ::kiddo::DonnellyUnrolledBlockDim<$bh> };
+    (donnelly_simd_descent, $bh:literal) => { ::kiddo::DonnellySimdDescent<$bh> };
+    (donnelly_simd_full, $bh:literal) => { ::kiddo::DonnellySimdFull<$bh> };
+    // These assert BH==3 for f64 and BH==4 for f32 at run time, so the manifest
+    // declares them in separate cases pinned to the matching block height. An
+    // invalid pairing would panic inside the timed region.
+    (donnelly_cyclic_simd_descent, $bh:literal) => {
+        ::kiddo::DonnellyCyclicSimdDescent<$bh>
     };
-    (eytzinger_nopf) => {
-        ::kiddo::EytzingerNoPf
-    };
-    (eytzinger_flexpf) => {
-        ::kiddo::EytzingerFlexPf
-    };
-    (donnelly) => {
-        ::kiddo::Donnelly
-    };
-    (donnelly_nopf) => {
-        ::kiddo::DonnellyNoPf
-    };
-    (donnelly_unrolled) => {
-        ::kiddo::DonnellyUnrolled
-    };
-    (donnelly_simd_descent) => {
-        ::kiddo::DonnellySimdDescent
-    };
-    (donnelly_simd_full) => {
-        ::kiddo::DonnellySimdFull
-    };
+    (donnelly_cyclic_simd_full, $bh:literal) => { ::kiddo::DonnellyCyclicSimdFull<$bh> };
 }
 
 #[macro_export]
@@ -193,18 +186,19 @@ macro_rules! __kiddo_leaf {
 /// key, with the subject namespace stripped.
 ///
 /// ```ignore
-/// bench_case!(axis = f64, bucket = 32, dims = 3, idx = u32,
-///             leaf = flatvec, stem = eytzinger)
+/// bench_case!(axis = f64, block_height = 3, bucket = 32, dims = 3,
+///             idx = u32, leaf = flatvec, stem = eytzinger)
 /// ```
 #[macro_export]
 macro_rules! bench_case {
     (
-        axis = $axis:ident, bucket = $bucket:literal, dims = $dims:literal,
-        idx = $idx:ident, leaf = $leaf:ident, stem = $stem:ident
+        axis = $axis:ident, block_height = $bh:literal, bucket = $bucket:literal,
+        dims = $dims:literal, idx = $idx:ident, leaf = $leaf:ident, stem = $stem:ident
     ) => {
         $crate::Registration {
             compile_time: &[
                 ("axis", stringify!($axis)),
+                ("kiddo.block_height", stringify!($bh)),
                 ("kiddo.bucket", stringify!($bucket)),
                 ("dims", stringify!($dims)),
                 ("idx", stringify!($idx)),
@@ -218,7 +212,7 @@ macro_rules! bench_case {
                 type Tree = ::kiddo::kd_tree::KdTree<
                     Axis,
                     Idx,
-                    $crate::__kiddo_stem!($stem),
+                    $crate::__kiddo_stem!($stem, $bh),
                     Leaf,
                     $dims,
                     $bucket,

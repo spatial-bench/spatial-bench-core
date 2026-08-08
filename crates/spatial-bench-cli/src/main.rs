@@ -351,14 +351,20 @@ fn execute(
             subject_crate: subject_crate_name(subject),
             subject_source: source,
             features: catalog.features(subject),
+            rustflags: catalog.rustflags(subject),
             generated,
         };
         let dir = build::materialise(&build_root, &request).map_err(|e| e.to_string())?;
 
         eprintln!("building {subject} in {}", dir.display());
-        let built = std::process::Command::new("cargo")
+        let mut cargo = std::process::Command::new("cargo");
+        cargo
             .args(["build", "--release", "--bin", "driver"])
-            .current_dir(&dir)
+            .current_dir(&dir);
+        if let Some(flags) = &request.rustflags {
+            cargo.env("RUSTFLAGS", flags);
+        }
+        let built = cargo
             .status()
             .map_err(|e| format!("could not run cargo: {e}"))?;
         if !built.success() {
@@ -382,7 +388,14 @@ fn execute(
         collected.extend(drive(&dir.join("target/release/driver"), &spec)?);
     }
 
-    let path = write_run(&selection, runner, &toolchain, &overrides, collected)?;
+    let path = write_run(
+        &selection,
+        runner,
+        &toolchain,
+        catalog.rustflags_any(),
+        &overrides,
+        collected,
+    )?;
     println!("wrote {}", path.display());
     Ok(())
 }
@@ -416,6 +429,7 @@ fn generate_for(
         cases,
         &codegen::BuildInputs {
             toolchain: toolchain.to_string(),
+            rustflags: catalog.rustflags(subject),
             subject_rev: rev,
             features: catalog.features(subject),
         },
@@ -485,6 +499,7 @@ fn write_run(
     selection: &SelectorSet,
     runner: Runner,
     toolchain: &spatial_bench_core::toolchain::Version,
+    rustflags: Option<String>,
     overrides: &std::collections::BTreeMap<String, PathBuf>,
     points: Vec<spatial_bench_core::schema::Point>,
 ) -> Result<PathBuf, String> {
@@ -518,7 +533,7 @@ fn write_run(
             rustc: toolchain.to_string(),
             host: std::env::consts::ARCH.to_owned(),
             target_cpu: None,
-            rustflags: std::env::var("RUSTFLAGS").ok(),
+            rustflags: rustflags.clone(),
             features: Vec::new(),
             cargo_profile: "release".to_owned(),
             opt_level: Some("3".to_owned()),

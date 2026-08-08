@@ -30,6 +30,7 @@ pub struct BuildRequest {
     pub subject_crate: String,
     pub subject_source: SubjectSource,
     pub features: Vec<String>,
+    pub rustflags: Option<String>,
     pub generated: Generated,
 }
 
@@ -134,6 +135,7 @@ mod tests {
             subject_crate: "kiddo".into(),
             subject_source: source,
             features: vec!["test_utils".into()],
+            rustflags: None,
             generated: Generated {
                 source: "fn main() {}\n".into(),
                 cache_key: "abc123".into(),

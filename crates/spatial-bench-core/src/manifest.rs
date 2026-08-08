@@ -57,6 +57,9 @@ pub struct Driver {
     /// Cargo features the subject is built with.
     #[serde(default)]
     pub features: Vec<String>,
+    /// RUSTFLAGS the driver needs. Part of the build cache key, since the same
+    /// source compiled with different flags is a different binary.
+    pub rustflags: Option<String>,
     /// Two-phase only: the macro a generated `main.rs` invokes, once per
     /// selected compile-time combination.
     #[serde(rename = "macro")]

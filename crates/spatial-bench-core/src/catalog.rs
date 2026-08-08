@@ -16,6 +16,7 @@ pub struct SubjectFacts {
     pub pinned_ref: String,
     pub features: Vec<String>,
     pub min_rustc: Option<String>,
+    pub rustflags: Option<String>,
 }
 
 impl Catalog {
@@ -42,6 +43,24 @@ impl Catalog {
             .get(subject)
             .map(|f| f.features.clone())
             .unwrap_or_default()
+    }
+
+    /// RUSTFLAGS a subject's driver is built with.
+    pub fn rustflags(&self, subject: &str) -> Option<String> {
+        self.subjects.get(subject).and_then(|f| f.rustflags.clone())
+    }
+
+    /// Any RUSTFLAGS in play, for the run record. Distinct values across
+    /// subjects are joined so the record cannot imply a single setting applied.
+    pub fn rustflags_any(&self) -> Option<String> {
+        let mut all: Vec<String> = self
+            .subjects
+            .values()
+            .filter_map(|f| f.rustflags.clone())
+            .collect();
+        all.sort();
+        all.dedup();
+        (!all.is_empty()).then(|| all.join("; "))
     }
 
     /// Lowest rustc a subject builds with, if it declares one.
@@ -303,9 +322,14 @@ mod tests {
     #[test]
     fn runtime_sweeps_do_not_multiply_builds() {
         let catalog = catalog();
-        let one = SelectorSet::parse_all(["impl=kiddo_v6,k=1,axis=f64,tree_size=2^20"]).unwrap();
-        let many =
-            SelectorSet::parse_all(["impl=kiddo_v6,k=1,axis=f64,tree_size=2^16..2^25"]).unwrap();
+        let one = SelectorSet::parse_all([
+            "impl=kiddo_v6,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^20",
+        ])
+        .unwrap();
+        let many = SelectorSet::parse_all([
+            "impl=kiddo_v6,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^16..2^25",
+        ])
+        .unwrap();
 
         assert_eq!(catalog.points(&one).len(), 1);
         assert_eq!(catalog.points(&many).len(), 10);
@@ -320,24 +344,21 @@ mod tests {
     #[test]
     fn compile_time_axes_add_one_build_each() {
         let catalog = catalog();
-        // kiddo monomorphises on scalar type, so f32 and f64 are two builds
-        // even with every other generic axis fixed. k is a runtime axis, so its
-        // four values add none.
+        // Every generic combination is a build: seven unconstrained strategies
+        // over two scalars, plus the two cyclic SIMD strategies at each of the
+        // two block heights their assertions demand. k is a runtime axis, so
+        // its four values add none.
         let all_kiddo = SelectorSet::parse_all(["impl=kiddo_v6"]).unwrap();
-        assert_eq!(catalog.build_units(&all_kiddo).len(), 2);
-        assert_eq!(catalog.points(&all_kiddo).len(), 8);
+        assert_eq!(catalog.build_units(&all_kiddo).len(), 7 * 2 + 2 + 2);
+        assert_eq!(catalog.points(&all_kiddo).len(), 72);
 
-        let one_scalar = SelectorSet::parse_all(["impl=kiddo_v6,axis=f64"]).unwrap();
-        assert_eq!(catalog.build_units(&one_scalar).len(), 1);
-        assert_eq!(
-            catalog.points(&one_scalar).len(),
-            4,
-            "four values of k, one build"
-        );
+        let one = SelectorSet::parse_all(["impl=kiddo_v6,axis=f64,kiddo.stem=eytzinger"]).unwrap();
+        assert_eq!(catalog.build_units(&one).len(), 1);
+        assert_eq!(catalog.points(&one).len(), 4, "four values of k, one build");
 
         // nanoflann resolves its templates in the shim, so it is one build.
         let both = catalog.build_units(&SelectorSet::default());
-        assert_eq!(both.len(), 3, "two kiddo scalars plus nanoflann");
+        assert_eq!(both.len(), 18 + 1, "every kiddo combination plus nanoflann");
     }
 
     /// Intersection, not union: offering a runner only some cases support would
@@ -368,7 +389,12 @@ mod tests {
             narrow < all,
             "narrow {narrow:?} should be under all {all:?}"
         );
-        assert_eq!(narrow * 8, all, "16 points vs 2");
+        // 80 points across both subjects at default params; 18 kiddo cases
+        // offer k=1. Asserted as counts rather than a ratio, since the two do
+        // not divide evenly and a ratio would only obscure that.
+        let budget_per_point = std::time::Duration::from_secs(8);
+        assert_eq!(all, budget_per_point * 80);
+        assert_eq!(narrow, budget_per_point * 18);
     }
 
     /// A listing should only column what actually differs.
@@ -414,8 +440,10 @@ mod tests {
     #[test]
     fn over_budget_flags_only_what_exceeds_it() {
         let catalog = catalog();
-        let sel =
-            SelectorSet::parse_all(["impl=kiddo_v6,k=1,axis=f64,tree_size=2^16|2^29"]).unwrap();
+        let sel = SelectorSet::parse_all([
+            "impl=kiddo_v6,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^16|2^29",
+        ])
+        .unwrap();
         let over = catalog.over_budget(&sel, 1 << 30); // 1 GiB
         assert_eq!(over.len(), 1, "only 2^29 should exceed a 1 GiB budget");
         assert_eq!(

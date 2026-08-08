@@ -32,6 +32,9 @@ pub struct Generated {
 #[derive(Clone, Debug, Default)]
 pub struct BuildInputs {
     pub toolchain: String,
+    /// Same source compiled with different flags is a different binary, so this
+    /// is part of the key.
+    pub rustflags: Option<String>,
     /// Git revision or version of the subject being built.
     pub subject_rev: String,
     pub features: Vec<String>,
@@ -99,6 +102,8 @@ pub fn generate(
     let mut features = inputs.features.clone();
     features.sort();
     key_material.push_str(&features.join(","));
+    key_material.push('\u{1}');
+    key_material.push_str(inputs.rustflags.as_deref().unwrap_or(""));
 
     Generated {
         cache_key: blake3::hash(key_material.as_bytes()).to_hex()[..16].to_owned(),
@@ -131,6 +136,7 @@ mod tests {
     fn inputs() -> BuildInputs {
         BuildInputs {
             toolchain: "1.89.0".into(),
+            rustflags: Some("-C target-cpu=native".into()),
             subject_rev: "v6.0.0-alpha.4".into(),
             features: vec!["simd".into()],
         }
@@ -154,9 +160,12 @@ mod tests {
     fn emits_one_invocation_per_combination() {
         // f32 and f64 are separate monomorphisations, so the two axis values
         // are two combinations even though every other generic axis is fixed.
-        let generated = gen_for("impl=kiddo_v6");
+        let generated = gen_for("impl=kiddo_v6,kiddo.stem=eytzinger");
         assert_eq!(generated.combinations, 2);
         assert_eq!(generated.source.matches("bench_case!(").count(), 2);
+
+        // The whole catalog is every generic combination.
+        assert_eq!(gen_for("impl=kiddo_v6").combinations, 18);
         assert!(generated.source.contains("use spatial_bench_kiddo_v6::"));
     }
 
@@ -164,7 +173,7 @@ mod tests {
     /// shared dataset and means nothing inside one subject's own driver.
     #[test]
     fn macro_arguments_are_namespace_stripped_and_sorted() {
-        let generated = gen_for("impl=kiddo_v6");
+        let generated = gen_for("impl=kiddo_v6,kiddo.stem=eytzinger");
         let line = generated
             .source
             .lines()
@@ -173,8 +182,8 @@ mod tests {
             .trim();
         assert_eq!(
             line,
-            "bench_case!(axis = f64, bucket = 32, dims = 3, idx = u32, \
-             leaf = flatvec, stem = eytzinger),"
+            "bench_case!(axis = f64, block_height = 3, bucket = 32, dims = 3, \
+             idx = u32, leaf = flatvec, stem = eytzinger),"
         );
         assert!(!generated.source.contains("kiddo."));
     }
@@ -182,8 +191,8 @@ mod tests {
     /// The property the whole two-phase design exists for.
     #[test]
     fn runtime_sweeps_do_not_add_combinations() {
-        let one = gen_for("impl=kiddo_v6,tree_size=2^20");
-        let many = gen_for("impl=kiddo_v6,tree_size=2^16..2^25");
+        let one = gen_for("impl=kiddo_v6,kiddo.stem=eytzinger,tree_size=2^20");
+        let many = gen_for("impl=kiddo_v6,kiddo.stem=eytzinger,tree_size=2^16..2^25");
         assert_eq!(one.combinations, many.combinations);
         assert_eq!(
             one.source, many.source,
@@ -195,7 +204,10 @@ mod tests {
     /// Without byte-identical output for the same selection, caching cannot work.
     #[test]
     fn generation_is_deterministic() {
-        assert_eq!(gen_for("impl=kiddo_v6"), gen_for("impl=kiddo_v6"));
+        assert_eq!(
+            gen_for("impl=kiddo_v6,kiddo.stem=eytzinger"),
+            gen_for("impl=kiddo_v6,kiddo.stem=eytzinger")
+        );
     }
 
     /// A changed subject revision, toolchain or feature set must rebuild, even
@@ -211,6 +223,7 @@ mod tests {
             |i: &mut BuildInputs| i.toolchain = "1.90.0".into(),
             |i: &mut BuildInputs| i.subject_rev = "deadbeef".into(),
             |i: &mut BuildInputs| i.features.push("logging_off".into()),
+            |i: &mut BuildInputs| i.rustflags = None,
         ] {
             let mut changed = inputs();
             mutate(&mut changed);

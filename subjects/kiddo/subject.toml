@@ -31,7 +31,9 @@ pinned_ref = "v6.0.0-alpha.4"
 adapter = "rust-codegen"
 crate = "spatial-bench-kiddo-v6"
 macro = "bench_case"
-features = ["test_utils"]
+features = ["test_utils", "simd"]
+# The cyclic SIMD strategies need AVX-512, which needs the native target.
+rustflags = "-C target-cpu=native"
 # Core keys that are generic parameters for kiddo specifically. KdTree
 # monomorphises on scalar type, dimensionality and index type; a subject that
 # dispatched on them at run time would list none of them here.
@@ -48,15 +50,17 @@ stem.compile_time = true
 stem.values = [
   "eytzinger",
   "eytzinger_nopf",
-  "eytzinger_flexpf",
   "donnelly",
   "donnelly_nopf",
   "donnelly_unrolled",
+  "donnelly_unrolled_block_dim",
   "donnelly_simd_descent",
   "donnelly_simd_full",
   "donnelly_cyclic_simd_descent",
   "donnelly_cyclic_simd_full",
 ]
+block_height.compile_time = true
+block_height.kind = "int"
 leaf.compile_time = true
 leaf.values = ["flatvec"]
 bucket.compile_time = true
@@ -65,13 +69,22 @@ storage.values = ["heap", "archived_mmap", "archived_owned"]
 executor.values = ["serial", "parallel", "tuned"]
 hugepages.values = ["on", "off"]
 
-# One declaration replaces three bench files, three bench-v6-* recipes and the
-# KIDDO_PROFILE_{QUERIES,MIN,MAX}_LOG2_POINTS env vars. `matrix` expands it.
+# Strategies with no block-height constraint. Eytzinger ignores the axis; the
+# Donnelly family is generic over it.
 [[case]]
 runners = ["criterion", "perf"]
 
 matrix.axis = ["f32", "f64"]
 matrix.k = [1, 5, 20, 50]
+matrix."kiddo.stem" = [
+  "eytzinger",
+  "eytzinger_nopf",
+  "donnelly",
+  "donnelly_nopf",
+  "donnelly_unrolled",
+  "donnelly_simd_descent",
+  "donnelly_simd_full",
+]
 
 tags.impl = "kiddo_v6"
 tags.query = "exact_nn"
@@ -79,7 +92,7 @@ tags.dims = 3
 tags.idx = "u32"
 tags.metric = "squared_euclidean"
 tags.isa = "avx512"
-tags."kiddo.stem" = "eytzinger"
+tags."kiddo.block_height" = 3
 tags."kiddo.leaf" = "flatvec"
 tags."kiddo.bucket" = 32
 tags."kiddo.storage" = "heap"
@@ -88,6 +101,58 @@ tags."kiddo.executor" = "serial"
 # The full range worth sweeping. NOT a capability limit: what actually fits is a
 # function of host memory, which is per-machine and so cannot live here -- the
 # engine checks feasibility at run time (see `Case::footprint_bytes`).
+params.tree_size.range = "2^16..2^29"
+params.tree_size.default = "2^20"
+params.query_count.kind = "int"
+params.query_count.default = 1000
+
+# The cyclic SIMD strategies assert BH==3 for f64 and BH==4 for f32 at run time,
+# independent of dimensionality. Declaring them as two cases pinned to the
+# matching block height keeps the generator from ever emitting a combination
+# that would panic inside the timed region.
+[[case]]
+runners = ["criterion", "perf"]
+
+matrix.k = [1, 5, 20, 50]
+matrix."kiddo.stem" = ["donnelly_cyclic_simd_descent", "donnelly_cyclic_simd_full"]
+
+tags.impl = "kiddo_v6"
+tags.query = "exact_nn"
+tags.axis = "f64"
+tags.dims = 3
+tags.idx = "u32"
+tags.metric = "squared_euclidean"
+tags.isa = "avx512"
+tags."kiddo.block_height" = 3
+tags."kiddo.leaf" = "flatvec"
+tags."kiddo.bucket" = 32
+tags."kiddo.storage" = "heap"
+tags."kiddo.executor" = "serial"
+
+params.tree_size.range = "2^16..2^29"
+params.tree_size.default = "2^20"
+params.query_count.kind = "int"
+params.query_count.default = 1000
+
+[[case]]
+runners = ["criterion", "perf"]
+
+matrix.k = [1, 5, 20, 50]
+matrix."kiddo.stem" = ["donnelly_cyclic_simd_descent", "donnelly_cyclic_simd_full"]
+
+tags.impl = "kiddo_v6"
+tags.query = "exact_nn"
+tags.axis = "f32"
+tags.dims = 3
+tags.idx = "u32"
+tags.metric = "squared_euclidean"
+tags.isa = "avx512"
+tags."kiddo.block_height" = 4
+tags."kiddo.leaf" = "flatvec"
+tags."kiddo.bucket" = 32
+tags."kiddo.storage" = "heap"
+tags."kiddo.executor" = "serial"
+
 params.tree_size.range = "2^16..2^29"
 params.tree_size.default = "2^20"
 params.query_count.kind = "int"

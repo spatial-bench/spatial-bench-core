@@ -242,7 +242,7 @@ mod tests {
             .into_iter()
             .find(|f| f.key == "kiddo.stem")
             .unwrap();
-        assert_eq!(before.values.len(), 1, "only eytzinger is declared so far");
+        assert_eq!(before.values.len(), 9, "every declared stem strategy");
 
         picker.choose("impl", vec![word("nanoflann")]);
         let after = picker.facets(&catalog);
@@ -310,8 +310,8 @@ mod tests {
         let mut picker = Picker::new();
         picker.choose("impl", vec![word("kiddo_v6")]);
         let preview = picker.preview(&catalog, Runner::Criterion, &Budget::default());
-        assert_eq!(preview.cases, 8);
-        assert_eq!(preview.points, 8);
+        assert_eq!(preview.cases, 72);
+        assert_eq!(preview.points, 72);
         assert_eq!(
             preview.runners,
             vec!["criterion".to_string(), "perf".to_string()]
@@ -333,8 +333,8 @@ mod tests {
         assert!(p > c, "perf {p:?} should exceed criterion {c:?}");
         assert_eq!(
             c,
-            Duration::from_secs(8) * 16,
-            "16 points at warm-up+measurement"
+            Duration::from_secs(8) * 80,
+            "80 points at warm-up+measurement"
         );
     }
 

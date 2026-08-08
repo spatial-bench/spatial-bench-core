@@ -68,6 +68,7 @@ pub fn load_dir(dir: &Path) -> Result<Catalog, ManifestError> {
                     .toolchain
                     .as_ref()
                     .and_then(|t| t.min_rustc.clone()),
+                rustflags: manifest.driver.rustflags.clone(),
             },
         );
         cases.extend(subject_cases);
@@ -372,14 +373,45 @@ mod tests {
         load_dir(&subjects_dir()).expect("vendored manifests should load")
     }
 
-    /// The matrix expands into real cases: 2 scalars x 4 values of k, per
-    /// subject. This is the sweep that used to be a nested for-loop across three
-    /// bench files and three recipes.
+    /// The matrix expands into real cases. For kiddo: seven unconstrained
+    /// strategies over two scalars and four values of k, plus the two cyclic
+    /// SIMD strategies declared once per scalar because each pins the block
+    /// height its assertions demand.
     #[test]
     fn matrix_expands_into_cases() {
         let catalog = catalog();
-        assert_eq!(catalog.for_subject("kiddo_v6").count(), 8);
+        assert_eq!(
+            catalog.for_subject("kiddo_v6").count(),
+            7 * 2 * 4 + 2 * 4 + 2 * 4
+        );
         assert_eq!(catalog.for_subject("nanoflann").count(), 8);
+    }
+
+    /// The cyclic SIMD strategies assert BH==3 for f64 and BH==4 for f32. The
+    /// catalog must never offer the other pairing, or a run would panic inside
+    /// the timed region.
+    #[test]
+    fn cyclic_strategies_only_appear_at_their_required_block_height() {
+        let catalog = catalog();
+        for case in catalog.cases() {
+            let Some(stem) = case.tags.get("kiddo.stem").map(ToString::to_string) else {
+                continue;
+            };
+            if !stem.starts_with("donnelly_cyclic") {
+                continue;
+            }
+            let axis = case.tags.get("axis").map(ToString::to_string).unwrap();
+            let bh = case
+                .tags
+                .get("kiddo.block_height")
+                .map(ToString::to_string)
+                .unwrap();
+            let required = if axis == "f64" { "3" } else { "4" };
+            assert_eq!(
+                bh, required,
+                "{stem} on {axis} must use block height {required}"
+            );
+        }
     }
 
     /// Extension keys arrive namespaced by subject, not by subject *version*:
@@ -404,7 +436,7 @@ mod tests {
     fn unconstrained_params_use_their_default() {
         let catalog = catalog();
         let all = catalog.points(&SelectorSet::default());
-        assert_eq!(all.len(), 16, "one point per case at default params");
+        assert_eq!(all.len(), 72 + 8, "one point per case at default params");
         for (_, tags) in &all {
             assert_eq!(tags.get("tree_size"), Some(&TagValue::Int(1 << 20)));
             assert_eq!(tags.get("query_count"), Some(&TagValue::Int(1000)));
@@ -415,7 +447,10 @@ mod tests {
     #[test]
     fn constrained_params_sweep() {
         let catalog = catalog();
-        let sel = SelectorSet::parse_all(["impl=kiddo_v6,k=1,tree_size=2^20|2^23|2^26"]).unwrap();
+        let sel = SelectorSet::parse_all([
+            "impl=kiddo_v6,k=1,kiddo.stem=eytzinger,tree_size=2^20|2^23|2^26",
+        ])
+        .unwrap();
         let points = catalog.points(&sel);
         assert_eq!(points.len(), 2 * 3, "2 scalars x 3 sizes at k=1");
         // 2^26 must be reachable: the declared range is what is worth sweeping,
@@ -433,8 +468,10 @@ mod tests {
     #[test]
     fn ranges_expand_within_the_declared_domain() {
         let catalog = catalog();
-        let sel =
-            SelectorSet::parse_all(["impl=kiddo_v6,k=1,axis=f64,tree_size=2^16..2^19"]).unwrap();
+        let sel = SelectorSet::parse_all([
+            "impl=kiddo_v6,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^16..2^19",
+        ])
+        .unwrap();
         let points = catalog.points(&sel);
         assert_eq!(points.len(), 4, "2^16, 2^17, 2^18, 2^19");
     }
