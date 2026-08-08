@@ -58,6 +58,15 @@ pub struct Driver {
     /// selected compile-time combination.
     #[serde(rename = "macro")]
     pub macro_name: Option<String>,
+    /// Core keys that are generic parameters *for this subject*.
+    ///
+    /// Extension keys carry their own `compile_time` marking, but a core key
+    /// like `axis` or `dims` cannot: it is owned by the domain, and whether it
+    /// is a generic parameter depends on the subject. kiddo monomorphises on
+    /// scalar type and dimensionality; a subject that dispatches on them at run
+    /// time would list neither.
+    #[serde(default)]
+    pub compile_time: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

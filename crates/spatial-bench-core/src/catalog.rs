@@ -284,14 +284,24 @@ mod tests {
     #[test]
     fn compile_time_axes_add_one_build_each() {
         let catalog = catalog();
+        // kiddo monomorphises on scalar type, so f32 and f64 are two builds
+        // even with every other generic axis fixed. k is a runtime axis, so its
+        // four values add none.
         let all_kiddo = SelectorSet::parse_all(["impl=kiddo_v6"]).unwrap();
-        // Only one stem/leaf/bucket combination is declared so far, so every
-        // kiddo case shares a single build unit.
-        assert_eq!(catalog.build_units(&all_kiddo).len(), 1);
+        assert_eq!(catalog.build_units(&all_kiddo).len(), 2);
         assert_eq!(catalog.points(&all_kiddo).len(), 8);
 
+        let one_scalar = SelectorSet::parse_all(["impl=kiddo_v6,axis=f64"]).unwrap();
+        assert_eq!(catalog.build_units(&one_scalar).len(), 1);
+        assert_eq!(
+            catalog.points(&one_scalar).len(),
+            4,
+            "four values of k, one build"
+        );
+
+        // nanoflann resolves its templates in the shim, so it is one build.
         let both = catalog.build_units(&SelectorSet::default());
-        assert_eq!(both.len(), 2, "kiddo and nanoflann build separately");
+        assert_eq!(both.len(), 3, "two kiddo scalars plus nanoflann");
     }
 
     /// Intersection, not union: offering a runner only some cases support would

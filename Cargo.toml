@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/*"]
+# Driver crates are deliberately excluded. They are build inputs the CLI
+# compiles on demand against a subject's pinned ref (or a working tree under
+# --subject-path), so making them default members would force everyone building
+# the engine to also build every library under test.
+members = ["crates/spatial-bench-core", "crates/spatial-bench-cli"]
+exclude = ["crates/spatial-bench-kiddo-v6"]
 resolver = "2"
 
 [workspace.package]

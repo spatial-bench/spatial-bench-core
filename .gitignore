@@ -1,4 +1,8 @@
-/target
+# Nested too: driver crates build outside the main workspace.
+target/
 .DS_Store
 .idea
 .vscode
+
+# Generated drivers and their builds are engine output, never sources.
+/generated/

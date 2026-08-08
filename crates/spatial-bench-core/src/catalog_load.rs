@@ -109,11 +109,26 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
             compile_time: decl.compile_time,
         })
         .collect();
-    let compile_time_keys: Vec<String> = ext
+    let mut compile_time_keys: Vec<String> = ext
         .iter()
         .filter(|e| e.compile_time)
         .map(|e| e.key.clone())
         .collect();
+    // Extension keys marked compile_time, plus the core keys this subject
+    // declares as generic. A core key like `axis` cannot carry the marking
+    // itself: it is owned by the domain, and whether it is a generic
+    // parameter depends on the subject.
+    for key in &manifest.driver.compile_time {
+        if crate::vocab::lookup(key).is_none() {
+            return Err(ManifestError::UnknownKey {
+                subject: manifest.name.clone(),
+                key: format!("driver.compile_time names `{key}`, not a core key"),
+            });
+        }
+        compile_time_keys.push(key.clone());
+    }
+    // Sorted so generated source is byte-identical run to run.
+    compile_time_keys.sort();
 
     let mut cases = Vec::new();
     for decl in &manifest.cases {

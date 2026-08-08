@@ -15,6 +15,8 @@ pub mod adapter;
 pub mod case;
 pub mod catalog;
 pub mod catalog_load;
+pub mod codegen;
+pub mod harness;
 pub mod machine;
 pub mod manifest;
 pub mod picker;

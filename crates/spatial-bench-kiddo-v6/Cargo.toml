@@ -1,0 +1,22 @@
+[package]
+name = "spatial-bench-kiddo-v6"
+description = "spatial-bench driver for kiddo v6"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89.0"
+license = "MIT OR Apache-2.0"
+
+# Not a member of the engine workspace: the CLI builds this on demand, so
+# building the engine does not drag kiddo in.
+#
+# The engine owns the harness, so the measurement code lives here and kiddo
+# contributes only its public API. kiddo never depends on this crate.
+
+[dependencies]
+spatial-bench-core = { path = "../spatial-bench-core" }
+# Overridden by the CLI to the subject's pinned ref, or to a working tree under
+# --subject-path.
+kiddo = { path = "../../../kiddo", features = ["test_utils"] }
+rand = "0.10"
+rand_chacha = "0.10"
+serde_json = "1"
