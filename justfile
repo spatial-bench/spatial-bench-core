@@ -3,7 +3,11 @@
 default:
     @just --list
 
-# Interactive benchmark picker.
+# Interactive benchmark picker, then runs what you selected.
+#
+# Building from a pinned ref is not implemented yet, so a subject needs a
+# checkout. Set it once per shell rather than passing it every time:
+#   export SPATIAL_BENCH_SUBJECT_PATHS=kiddo_v6=$HOME/projects/kiddo
 bench *ARGS:
     cargo run --release --bin spatial-bench -- {{ARGS}}
 

@@ -22,7 +22,13 @@ struct Cli {
     /// Build a subject from a local directory instead of its pinned ref, as
     /// `NAME=DIR`. Runs produced this way record a checkout rather than a
     /// revision, and are marked so the dataset can reject them.
-    #[arg(long = "subject-path", value_name = "NAME=DIR", global = true)]
+    #[arg(
+        long = "subject-path",
+        value_name = "NAME=DIR",
+        global = true,
+        env = "SPATIAL_BENCH_SUBJECT_PATHS",
+        value_delimiter = ','
+    )]
     subject_paths: Vec<String>,
 
     /// Where generated drivers are built. Engine output, never sources.
@@ -169,7 +175,13 @@ fn run(cli: &Cli) -> Result<(), String> {
             runner,
             rustc,
             dry_run,
-        }) => cmd_run(cli, select, (*runner).into(), rustc.as_deref(), *dry_run),
+        }) => execute(
+            cli,
+            &selection(select)?,
+            (*runner).into(),
+            rustc.as_deref(),
+            *dry_run,
+        ),
         Some(Command::Machine { explain }) => cmd_machine(*explain),
         Some(Command::Fingerprint { .. }) => {
             Err("not implemented: needs root to read memory timings".to_owned())
@@ -263,15 +275,15 @@ fn cmd_describe(cli: &Cli) -> Result<(), String> {
     Ok(())
 }
 
-fn cmd_run(
+fn execute(
     cli: &Cli,
-    select: &Select,
+    selection: &SelectorSet,
     runner: Runner,
     rustc: Option<&str>,
     dry_run: bool,
 ) -> Result<(), String> {
     let catalog = load(cli)?;
-    let selection = selection(select)?;
+    let selection = selection.clone();
     let points = catalog.points(&selection);
     if points.is_empty() {
         return Err("that selection matches no data points".to_owned());
@@ -323,8 +335,12 @@ fn cmd_run(
             .map(SubjectSource::Path)
             .ok_or_else(|| {
                 format!(
-                    "{subject} has no --subject-path, and building from a pinned ref is \
-                     not implemented yet"
+                    "no source for {subject}.\n\
+                     Building from a pinned ref is not implemented yet, so point it at a \
+                     checkout:\n    --subject-path {subject}=/path/to/{}\n\
+                     or set SPATIAL_BENCH_SUBJECT_PATHS={subject}=/path/to/{}",
+                    subject_crate_name(subject),
+                    subject_crate_name(subject),
                 )
             })?;
 
@@ -695,11 +711,19 @@ fn interactive(cli: &Cli) -> Result<(), String> {
         }
     }
 
+    // Minimised: walking the whole menu pins every facet, and echoing all of
+    // them gives a line too long to read or paste.
+    let selection = picker.minimal(&catalog);
     println!(
         "\nReproduce this selection:\n\n  {}\n",
-        picker.command(runner)
+        picker.command_for(runner, &catalog)
     );
-    Err("not implemented: executing a run needs each subject built from its pinned ref".to_owned())
+
+    match prompt("Run now? [Y/n]: ").as_deref() {
+        Some("n") | Some("N") => Ok(()),
+        // EOF counts as yes so a piped session still runs; anything else too.
+        _ => execute(cli, &selection, runner, None, false),
+    }
 }
 
 fn report_unsatisfied(catalog: &Catalog, selection: &SelectorSet) {
