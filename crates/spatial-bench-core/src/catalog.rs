@@ -344,12 +344,10 @@ mod tests {
     #[test]
     fn compile_time_axes_add_one_build_each() {
         let catalog = catalog();
-        // Every generic combination is a build: seven unconstrained strategies
-        // over two scalars, plus the two cyclic SIMD strategies at each of the
-        // two block heights their assertions demand. k is a runtime axis, so
-        // its four values add none.
+        // Every generic combination is a build: nine strategies over two
+        // scalars. k is a runtime axis, so its four values add none.
         let all_kiddo = SelectorSet::parse_all(["impl=kiddo_v6"]).unwrap();
-        assert_eq!(catalog.build_units(&all_kiddo).len(), 7 * 2 + 2 + 2);
+        assert_eq!(catalog.build_units(&all_kiddo).len(), 9 * 2);
         assert_eq!(catalog.points(&all_kiddo).len(), 72);
 
         let one = SelectorSet::parse_all(["impl=kiddo_v6,axis=f64,kiddo.stem=eytzinger"]).unwrap();

@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(generated.source.matches("bench_case!(").count(), 2);
 
         // The whole catalog is every generic combination.
-        assert_eq!(gen_for("impl=kiddo_v6").combinations, 18);
+        assert_eq!(gen_for("impl=kiddo_v6").combinations, 9 * 2);
         assert!(generated.source.contains("use spatial_bench_kiddo_v6::"));
     }
 

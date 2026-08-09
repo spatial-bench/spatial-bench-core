@@ -69,8 +69,10 @@ storage.values = ["heap", "archived_mmap", "archived_owned"]
 executor.values = ["serial", "parallel", "tuned"]
 hugepages.values = ["on", "off"]
 
-# Strategies with no block-height constraint. Eytzinger ignores the axis; the
-# Donnelly family is generic over it.
+# One declaration for every strategy. The cyclic SIMD ones need a specific block
+# height per scalar type, but that is a property of the strategy rather than
+# something a manifest should have to encode: the driver derives it and the
+# emitted point records what was actually compiled.
 [[case]]
 runners = ["criterion", "perf"]
 
@@ -84,6 +86,8 @@ matrix."kiddo.stem" = [
   "donnelly_unrolled",
   "donnelly_simd_descent",
   "donnelly_simd_full",
+  "donnelly_cyclic_simd_descent",
+  "donnelly_cyclic_simd_full",
 ]
 
 tags.impl = "kiddo_v6"
@@ -101,58 +105,6 @@ tags."kiddo.executor" = "serial"
 # The full range worth sweeping. NOT a capability limit: what actually fits is a
 # function of host memory, which is per-machine and so cannot live here -- the
 # engine checks feasibility at run time (see `Case::footprint_bytes`).
-params.tree_size.range = "2^16..2^29"
-params.tree_size.default = "2^20"
-params.query_count.kind = "int"
-params.query_count.default = 1000
-
-# The cyclic SIMD strategies assert BH==3 for f64 and BH==4 for f32 at run time,
-# independent of dimensionality. Declaring them as two cases pinned to the
-# matching block height keeps the generator from ever emitting a combination
-# that would panic inside the timed region.
-[[case]]
-runners = ["criterion", "perf"]
-
-matrix.k = [1, 5, 20, 50]
-matrix."kiddo.stem" = ["donnelly_cyclic_simd_descent", "donnelly_cyclic_simd_full"]
-
-tags.impl = "kiddo_v6"
-tags.query = "exact_nn"
-tags.axis = "f64"
-tags.dims = 3
-tags.idx = "u32"
-tags.metric = "squared_euclidean"
-tags.isa = "avx512"
-tags."kiddo.block_height" = 3
-tags."kiddo.leaf" = "flatvec"
-tags."kiddo.bucket" = 32
-tags."kiddo.storage" = "heap"
-tags."kiddo.executor" = "serial"
-
-params.tree_size.range = "2^16..2^29"
-params.tree_size.default = "2^20"
-params.query_count.kind = "int"
-params.query_count.default = 1000
-
-[[case]]
-runners = ["criterion", "perf"]
-
-matrix.k = [1, 5, 20, 50]
-matrix."kiddo.stem" = ["donnelly_cyclic_simd_descent", "donnelly_cyclic_simd_full"]
-
-tags.impl = "kiddo_v6"
-tags.query = "exact_nn"
-tags.axis = "f32"
-tags.dims = 3
-tags.idx = "u32"
-tags.metric = "squared_euclidean"
-tags.isa = "avx512"
-tags."kiddo.block_height" = 4
-tags."kiddo.leaf" = "flatvec"
-tags."kiddo.bucket" = 32
-tags."kiddo.storage" = "heap"
-tags."kiddo.executor" = "serial"
-
 params.tree_size.range = "2^16..2^29"
 params.tree_size.default = "2^20"
 params.query_count.kind = "int"

@@ -11,7 +11,12 @@
 //! actually needs.
 
 use spatial_bench_core::harness::{Budget, CaseSpec};
+
 use spatial_bench_core::schema::{Metric, Point, Stats};
+/// Re-exported for [`bench_case!`]. A macro expands in the generated crate,
+/// which depends on this crate and the subject and nothing else, so anything it
+/// names must be reachable through `$crate`.
+pub use spatial_bench_core::tag::{TagKey, TagValue};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
@@ -154,22 +159,56 @@ pub fn measure(
 #[doc(hidden)]
 macro_rules! __kiddo_stem {
     // Eytzinger has no block height; the axis exists for the Donnelly family
-    // and is ignored here rather than being a separate case shape.
-    (eytzinger, $bh:literal) => { ::kiddo::Eytzinger };
-    (eytzinger_nopf, $bh:literal) => { ::kiddo::EytzingerNoPf };
-    (donnelly, $bh:literal) => { ::kiddo::Donnelly<$bh> };
-    (donnelly_nopf, $bh:literal) => { ::kiddo::DonnellyNoPf<$bh> };
-    (donnelly_unrolled, $bh:literal) => { ::kiddo::DonnellyUnrolled<$bh> };
-    (donnelly_unrolled_block_dim, $bh:literal) => { ::kiddo::DonnellyUnrolledBlockDim<$bh> };
-    (donnelly_simd_descent, $bh:literal) => { ::kiddo::DonnellySimdDescent<$bh> };
-    (donnelly_simd_full, $bh:literal) => { ::kiddo::DonnellySimdFull<$bh> };
-    // These assert BH==3 for f64 and BH==4 for f32 at run time, so the manifest
-    // declares them in separate cases pinned to the matching block height. An
-    // invalid pairing would panic inside the timed region.
-    (donnelly_cyclic_simd_descent, $bh:literal) => {
-        ::kiddo::DonnellyCyclicSimdDescent<$bh>
+    // and is matched and discarded here rather than needing a separate shape.
+    (eytzinger, $bh:literal, $axis:ident) => { ::kiddo::Eytzinger };
+    (eytzinger_nopf, $bh:literal, $axis:ident) => { ::kiddo::EytzingerNoPf };
+    (donnelly, $bh:literal, $axis:ident) => { ::kiddo::Donnelly<$bh> };
+    (donnelly_nopf, $bh:literal, $axis:ident) => { ::kiddo::DonnellyNoPf<$bh> };
+    (donnelly_unrolled, $bh:literal, $axis:ident) => { ::kiddo::DonnellyUnrolled<$bh> };
+    (donnelly_unrolled_block_dim, $bh:literal, $axis:ident) => {
+        ::kiddo::DonnellyUnrolledBlockDim<$bh>
     };
-    (donnelly_cyclic_simd_full, $bh:literal) => { ::kiddo::DonnellyCyclicSimdFull<$bh> };
+    (donnelly_simd_descent, $bh:literal, $axis:ident) => { ::kiddo::DonnellySimdDescent<$bh> };
+    (donnelly_simd_full, $bh:literal, $axis:ident) => { ::kiddo::DonnellySimdFull<$bh> };
+
+    // The cyclic SIMD strategies assert BH==3 for f64 and BH==4 for f32,
+    // independent of dimensionality. That is a property of the strategy, so it
+    // is decided here rather than being something a manifest has to know or a
+    // selection can get wrong. The declared block height is ignored, and the
+    // emitted point records what was actually compiled -- see __kiddo_bh!.
+    (donnelly_cyclic_simd_descent, $bh:literal, f64) => {
+        ::kiddo::DonnellyCyclicSimdDescent<3>
+    };
+    (donnelly_cyclic_simd_descent, $bh:literal, f32) => {
+        ::kiddo::DonnellyCyclicSimdDescent<4>
+    };
+    (donnelly_cyclic_simd_full, $bh:literal, f64) => { ::kiddo::DonnellyCyclicSimdFull<3> };
+    (donnelly_cyclic_simd_full, $bh:literal, f32) => { ::kiddo::DonnellyCyclicSimdFull<4> };
+}
+
+/// The block height actually compiled, which is not always the one declared.
+///
+/// A tag that disagreed with the binary would put a wrong number in the dataset
+/// with nothing to catch it, so the point records this rather than the manifest
+/// value.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __kiddo_bh {
+    (donnelly_cyclic_simd_descent, $bh:literal, f64) => {
+        3
+    };
+    (donnelly_cyclic_simd_descent, $bh:literal, f32) => {
+        4
+    };
+    (donnelly_cyclic_simd_full, $bh:literal, f64) => {
+        3
+    };
+    (donnelly_cyclic_simd_full, $bh:literal, f32) => {
+        4
+    };
+    ($stem:ident, $bh:literal, $axis:ident) => {
+        $bh
+    };
 }
 
 #[macro_export]
@@ -212,7 +251,7 @@ macro_rules! bench_case {
                 type Tree = ::kiddo::kd_tree::KdTree<
                     Axis,
                     Idx,
-                    $crate::__kiddo_stem!($stem, $bh),
+                    $crate::__kiddo_stem!($stem, $bh, $axis),
                     Leaf,
                     $dims,
                     $bucket,
@@ -266,7 +305,14 @@ macro_rules! bench_case {
                 if !matches!(query_kind.as_str(), "exact_nn") {
                     return Err(format!("query kind `{query_kind}` is not implemented yet"));
                 }
-                Ok($crate::measure(case, budget, queries as u64, body))
+                let mut point = $crate::measure(case, budget, queries as u64, body);
+                // Record the block height the binary was built with, which the
+                // strategy may have overridden.
+                point.tags.insert(
+                    $crate::TagKey::Borrowed("kiddo.block_height"),
+                    $crate::TagValue::Int($crate::__kiddo_bh!($stem, $bh, $axis) as i64),
+                );
+                Ok(point)
             },
         }
     };
@@ -281,4 +327,33 @@ where
     use rand::{RngExt, SeedableRng};
     let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
     (0..count).map(|_| rng.random::<[A; D]>()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    /// The cyclic SIMD strategies assert BH==3 for f64 and BH==4 for f32 at run
+    /// time. The driver decides that rather than the manifest, so a selection
+    /// cannot produce a combination that panics inside the timed region.
+    ///
+    /// `__kiddo_bh!` is what the emitted point records, so this also guards
+    /// against the tag disagreeing with the binary — a wrong block height in the
+    /// dataset would be invisible otherwise.
+    #[test]
+    fn cyclic_strategies_override_the_declared_block_height() {
+        assert_eq!(__kiddo_bh!(donnelly_cyclic_simd_descent, 3, f64), 3);
+        assert_eq!(__kiddo_bh!(donnelly_cyclic_simd_descent, 3, f32), 4);
+        assert_eq!(__kiddo_bh!(donnelly_cyclic_simd_full, 3, f64), 3);
+        assert_eq!(__kiddo_bh!(donnelly_cyclic_simd_full, 3, f32), 4);
+
+        // Even a declaration that would panic is corrected rather than obeyed.
+        assert_eq!(__kiddo_bh!(donnelly_cyclic_simd_descent, 7, f32), 4);
+    }
+
+    /// Everything else uses what it was given.
+    #[test]
+    fn other_strategies_keep_the_declared_block_height() {
+        assert_eq!(__kiddo_bh!(donnelly_unrolled, 3, f64), 3);
+        assert_eq!(__kiddo_bh!(donnelly_unrolled, 5, f64), 5);
+        assert_eq!(__kiddo_bh!(eytzinger, 3, f32), 3);
+    }
 }

@@ -387,33 +387,6 @@ mod tests {
         assert_eq!(catalog.for_subject("nanoflann").count(), 8);
     }
 
-    /// The cyclic SIMD strategies assert BH==3 for f64 and BH==4 for f32. The
-    /// catalog must never offer the other pairing, or a run would panic inside
-    /// the timed region.
-    #[test]
-    fn cyclic_strategies_only_appear_at_their_required_block_height() {
-        let catalog = catalog();
-        for case in catalog.cases() {
-            let Some(stem) = case.tags.get("kiddo.stem").map(ToString::to_string) else {
-                continue;
-            };
-            if !stem.starts_with("donnelly_cyclic") {
-                continue;
-            }
-            let axis = case.tags.get("axis").map(ToString::to_string).unwrap();
-            let bh = case
-                .tags
-                .get("kiddo.block_height")
-                .map(ToString::to_string)
-                .unwrap();
-            let required = if axis == "f64" { "3" } else { "4" };
-            assert_eq!(
-                bh, required,
-                "{stem} on {axis} must use block height {required}"
-            );
-        }
-    }
-
     /// Extension keys arrive namespaced by subject, not by subject *version*:
     /// `kiddo.stem`, so a v7 manifest later does not split a chart that should
     /// stay continuous.
