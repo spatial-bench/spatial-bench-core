@@ -41,7 +41,7 @@ pub struct BuildRequest {
     pub driver_crate: String,
     pub driver_source: DriverSource,
     /// The engine checkout to patch the driver crate's core/measure deps to
-    /// (day 1.5: bencher-resident driver crates carry version-only deps).
+    /// ( bencher-resident driver crates carry version-only deps).
     /// `None` — no patch; registry versions stand.
     pub engine_root: Option<PathBuf>,
     pub subject_crate: String,
@@ -57,7 +57,7 @@ pub struct BuildRequest {
 /// cargo's own incremental state. Nothing here is a source file: the whole tree
 /// is engine output.
 ///
-/// **Trusted-input boundary (S2):** paths and manifest strings are
+/// **Trusted-input boundary :** paths and manifest strings are
 /// interpolated into the generated Cargo.toml as TOML values. The CLI
 /// validates subject paths through [`toml_safe_path`]; manifest fields are
 /// trusted engine content (§4's review model) and are not escaped further —
@@ -103,7 +103,7 @@ pub fn materialise(root: &Path, request: &BuildRequest) -> Result<PathBuf, Build
         DriverSource::Registry { version } => format!("\"{version}\""),
     };
 
-    // Day 1.5: bencher-resident driver crates carry version-only deps on
+    // bencher-resident driver crates carry version-only deps on
     // core + measure; when an engine checkout is reachable, a patch table
     // redirects those to the local sources so a run tests the engine it was
     // built from. Without an engine checkout the registry versions stand.
@@ -169,7 +169,7 @@ pub fn is_commit_id(reference: &str) -> bool {
 }
 
 /// True when a path can be interpolated into a generated Cargo.toml without
-/// corrupting it (S2). The generated manifest is TOML built by string
+/// corrupting it . The generated manifest is TOML built by string
 /// formatting, so a quote, backslash or newline in a path would inject or
 /// break keys. The CLI validates `--subject-path` values through this before
 /// building; manifest strings are trusted engine content (§4) and are not

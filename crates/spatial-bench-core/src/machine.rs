@@ -168,7 +168,7 @@ impl Machine {
             return Err(PrivilegedError::NotRoot);
         }
         let raw = run_capture(
-            // S4: absolute paths first. Under `sudo`, a bare name resolves
+            // absolute paths first. Under `sudo`, a bare name resolves
             // through root's PATH, and a planted `dmidecode` earlier in it
             // would execute as root. The bare-name fallback keeps unusual
             // layouts working, at the usual PATH trust level.
@@ -391,7 +391,7 @@ fn read_base_mhz() -> Option<u32> {
 /// The chipset, from the PCI host bridge description. lspci's wording is what
 /// it is; the point is a stable string that changes with the silicon.
 fn probe_chipset() -> Option<String> {
-    // S4: absolute paths first — see add_privileged.
+    // absolute paths first — see add_privileged.
     run_capture(&["/usr/sbin/lspci", "/usr/bin/lspci", "lspci"], &[])
         .and_then(|out| parse_lspci_chipset(&out))
 }

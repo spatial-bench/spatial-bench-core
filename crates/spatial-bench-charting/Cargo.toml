@@ -12,7 +12,7 @@ name = "spatial-bench-chart"
 path = "src/main.rs"
 
 # An optional side tool, deliberately its own binary: the bench runner never
-# links any of this (day-two TODO — the charting section). Rendering goes
+# links any of this ( — the charting section). Rendering goes
 # through plotters — the leanness rule applies to the runner and harness, not
 # to a niche chart tool that should use the best tool for the job.
 

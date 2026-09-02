@@ -238,7 +238,7 @@ pub fn execute(config: &RunConfig<'_>) -> Result<RunOutcome, String> {
         let crate_name = crate::vocab::namespace_of(subject).to_owned();
         let built_from = crate::build::built_subject(&prepared.dir.join("Cargo.lock"), &crate_name);
 
-        // S1: a manifest-pinned sha is enforced, not merely recorded — for
+        // a manifest-pinned sha is enforced, not merely recorded — for
         // rust subjects via the lockfile revision; for cxx exec subjects the
         // builder itself verified the fetched sources against the declared
         // sha and recorded what it built. Worktree builds are exempt: they
@@ -292,7 +292,7 @@ pub fn execute(config: &RunConfig<'_>) -> Result<RunOutcome, String> {
     })
 }
 
-/// S1: the manifest may pin the exact revision its ref must resolve to. The
+/// the manifest may pin the exact revision its ref must resolve to. The
 /// comparison runs against what cargo actually locked, so a moved tag is
 /// refused at build time, naming both revisions, instead of being detectable
 /// only by auditing run headers afterwards.
@@ -332,7 +332,7 @@ fn subject_request(
         subject_paths: config.subject_paths,
     };
     let exec_inputs = match first_case.adapter {
-        // Day 1.5: an exec subject's driver is built by the language builder,
+        // an exec subject's driver is built by the language builder,
         // from the manifest's own recipe and pin. The builder verifies the
         // library sha itself, so the run-level sha enforcement is skipped.
         crate::adapter::Adapter::Exec => {
@@ -415,7 +415,7 @@ struct RunHeader<'a> {
     overrides: &'a BTreeMap<String, PathBuf>,
     machine: &'a crate::machine::Machine,
     subjects: BTreeMap<String, SubjectProvenance>,
-    /// The fingerprint file this run validated against, when one did (S5).
+    /// The fingerprint file this run validated against, when one did .
     fingerprint: Option<String>,
     started_at: String,
 }
@@ -451,7 +451,7 @@ fn write_document(
         selectors: selection.to_exprs(),
         machine_hash: machine.hash(),
         machine: machine.clone(),
-        // S5: the source of trust for the machine hash is recorded — a run
+        // the source of trust for the machine hash is recorded — a run
         // validated against /etc is distinguishable from one validated against
         // a user-supplied file, and from one that was never verified.
         context: crate::schema::Context {
@@ -565,7 +565,7 @@ mod tests {
         assert_eq!(kiddo.combinations, 2);
     }
 
-    /// Day 1.5: exec subjects plan through their language builder — the plan
+    /// exec subjects plan through their language builder — the plan
     /// fetches/compiles the shim environment (cached) and reports its
     /// specialisation count, exactly like a rust subject's plan.
     #[test]
@@ -581,7 +581,7 @@ mod tests {
         assert_eq!(nanoflann.combinations, 2);
     }
 
-    /// B1's invariant, now positive: planning a perf run works — the runner
+    /// the invariant, now positive: planning a perf run works — the runner
     /// exists, so the plan no longer refuses it.
     #[test]
     fn a_perf_run_is_planned_like_any_other() {
@@ -592,7 +592,7 @@ mod tests {
         assert_eq!(plan.subjects.len(), 1);
     }
 
-    /// S1: a manifest-pinned sha is enforced against what cargo actually
+    /// a manifest-pinned sha is enforced against what cargo actually
     /// resolved — a moved tag is refused at build time, naming both revisions.
     #[test]
     fn a_moved_tag_is_refused_by_name() {

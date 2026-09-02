@@ -1,4 +1,4 @@
-//! The kitty graphics protocol (day-two TODO — the one bespoke piece): a
+//! The kitty graphics protocol ( — the one bespoke piece): a
 //! capability probe and chunked raw-RGBA transmission of the rendered chart.
 //!
 //! Transmission shape (kitty's documentation): each chunk is

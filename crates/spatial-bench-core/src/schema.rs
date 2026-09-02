@@ -153,7 +153,7 @@ pub struct Context {
     pub smt: Option<bool>,
     pub boost: Option<bool>,
     pub isolated_cpus: Option<String>,
-    /// The fingerprint file this run validated against (S5), when one
+    /// The fingerprint file this run validated against , when one
     /// existed. `None` — the run proceeded unverified, and the dataset should
     /// treat the machine hash accordingly.
     #[serde(default)]

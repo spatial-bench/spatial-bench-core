@@ -49,7 +49,7 @@ impl Runner {
     /// Runners the engine can actually execute. `Asm`/`Mca` emit artefacts
     /// rather than points (§11) and have no run path; the picker offers only
     /// implemented runners, because a menu item that ends in a refusal is not
-    /// a choice (D4).
+    /// a choice .
     pub fn implemented(self) -> bool {
         matches!(self, Runner::Criterion | Runner::Perf)
     }
@@ -155,7 +155,7 @@ pub struct Case {
     pub driver_crate: Option<String>,
     /// Two-phase only: macro a generated `main.rs` invokes.
     pub driver_macro: Option<String>,
-    /// exec only (day 1.5): the driver's language and entry file.
+    /// exec only: the driver's language and entry file.
     pub driver_lang: Option<String>,
     pub driver_entry: Option<String>,
     /// Fixed identity tags.
@@ -265,7 +265,7 @@ impl Case {
 mod tests {
     use super::*;
 
-    /// D4: the picker offers runners by name, so the strings and the
+    /// the picker offers runners by name, so the strings and the
     /// implemented set are contract, not presentation.
     #[test]
     fn runner_strings_parse_and_implemented_is_criterion_only() {

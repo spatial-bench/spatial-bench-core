@@ -742,7 +742,7 @@ mod tests {
         assert!(err.contains("previous engine generation"), "{err}");
 
         let host = validate_for_run_at(&path, true).unwrap();
-        // S5: an unverified run records no fingerprint source.
+        // an unverified run records no fingerprint source.
         assert!(host.fingerprint.is_none());
         assert!(
             host.machine.is_degraded(),

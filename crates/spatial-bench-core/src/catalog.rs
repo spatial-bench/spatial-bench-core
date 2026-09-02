@@ -22,18 +22,18 @@ pub struct SubjectFacts {
     /// Published version of the subject's driver crate, for builds with no
     /// engine source tree to depend on by path.
     pub driver_version: Option<String>,
-    /// The exact revision the manifest pins its ref to (S1), when declared.
+    /// The exact revision the manifest pins its ref to , when declared.
     /// The build refuses a ref that resolves to anything else.
     pub expected_sha: Option<String>,
     pub source_package: Option<String>,
-    /// Driver assets relative to the manifest's own directory (day 1.5),
+    /// Driver assets relative to the manifest's own directory,
     /// when the manifest declares them.
     pub driver_path: Option<String>,
-    /// The exec build recipe (day 1.5) — lang, entry, flags. rust-codegen
+    /// The exec build recipe — lang, entry, flags. rust-codegen
     /// subjects carry none.
     pub build: Option<crate::manifest::Build>,
     /// The directory this subject's manifest was loaded from — the anchor for
-    /// manifest-relative driver assets (day 1.5: the catalog lives in the
+    /// manifest-relative driver assets ( the catalog lives in the
     /// bencher checkout, and every subject dir is self-contained).
     pub manifest_dir: PathBuf,
     pub features: Vec<String>,
@@ -78,7 +78,7 @@ impl Catalog {
 
     /// The manifest-relative driver path, resolved against the manifest's own
     /// directory — the bencher-repo layout, where driver assets live beside
-    /// the manifest (day 1.5). `None` when the manifest declares none.
+    /// the manifest. `None` when the manifest declares none.
     pub fn manifest_driver_path(&self, subject: &str) -> Option<std::path::PathBuf> {
         let facts = self.subjects.get(subject)?;
         let rel = facts.driver_path.as_ref()?;
@@ -86,7 +86,7 @@ impl Catalog {
         dir.is_dir().then_some(dir)
     }
 
-    /// The exact revision the manifest pins its ref to, when declared (S1).
+    /// The exact revision the manifest pins its ref to, when declared .
     pub fn expected_sha(&self, subject: &str) -> Option<String> {
         self.subjects
             .get(subject)
@@ -94,12 +94,12 @@ impl Catalog {
     }
 
     /// The directory this subject's manifest was loaded from — the anchor for
-    /// manifest-relative driver assets (day 1.5).
+    /// manifest-relative driver assets.
     pub fn manifest_dir(&self, subject: &str) -> Option<std::path::PathBuf> {
         self.subjects.get(subject).map(|f| f.manifest_dir.clone())
     }
 
-    /// The exec build recipe, when the subject declares one (day 1.5).
+    /// The exec build recipe, when the subject declares one.
     pub fn build(&self, subject: &str) -> Option<crate::manifest::Build> {
         self.subjects.get(subject).and_then(|f| f.build.clone())
     }
@@ -528,7 +528,7 @@ mod tests {
         assert_eq!(catalog.unsatisfied(&sel), vec!["k=999".to_string()]);
     }
 
-    /// D3: a range that reaches nothing is reported like an unmet value —
+    /// a range that reaches nothing is reported like an unmet value —
     /// the whole point of the function, not just its OneOf case. An empty
     /// expansion reports every unsatisfied clause, because every clause
     /// reached no point; the range is in the list with the reason visible.
@@ -545,7 +545,7 @@ mod tests {
         );
     }
 
-    /// D3: `key=*` asks that the key exist at all. A key no case carries
+    /// `key=*` asks that the key exist at all. A key no case carries
     /// empties the selection, and the existence requirement is in the report
     /// with everything else it took down.
     #[test]

@@ -17,7 +17,7 @@ pub fn probe() -> Context {
         boost: read_trimmed("/sys/devices/system/cpu/cpufreq/boost").map(|v| v == "1"),
         isolated_cpus: read_trimmed("/sys/devices/system/cpu/isolated"),
         // The run gate fills this in from the fingerprint it validated
-        // against (S5); a probe has no file to name.
+        // against ; a probe has no file to name.
         fingerprint: None,
     }
 }

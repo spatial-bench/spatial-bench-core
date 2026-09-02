@@ -22,7 +22,7 @@ shims for every library under test live in
 separate reviewed catalog, including for libraries whose authors maintain this
 one. A subject that declares what is measured about itself can flatter itself;
 a comparison whose subjects wrote their own rules cannot be shown to be fair.
-The cost is that the catalog lags its subjects by a review cycle. Day 1.5
+The cost is that the catalog lags its subjects by a review cycle. 
 relocated the catalog out of this engine, which now carries no subject
 knowledge at all: point `--subjects` (or `SPATIAL_BENCH_SUBJECTS`) at a
 bencher checkout.

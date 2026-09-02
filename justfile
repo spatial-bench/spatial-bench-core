@@ -1,6 +1,6 @@
 # spatial-bench — tag-addressed, library-agnostic spatial-index benchmarking
 
-# Day 1.5: the catalog lives in the bencher repo (a sibling checkout).
+# the catalog lives in the bencher repo (a sibling checkout).
 # Override here if your checkout lives elsewhere.
 export SPATIAL_BENCH_SUBJECTS := env_var_or_default('SPATIAL_BENCH_SUBJECTS', env_var('HOME') / 'projects' / 'spatial-bench-benchers' / 'subjects')
 
@@ -22,7 +22,7 @@ subjects:
     cargo run --quiet --bin spatial-bench -- subjects
 
 test:
-    # The driver crate lives in the bencher repo now (day 1.5), excluded from
+    # The driver crate lives in the bencher repo now, excluded from
     # the engine workspace — so it needs its own line, or the most API-fragile
     # crate (the macro names kiddo's types) has no coverage.
     cargo test --workspace

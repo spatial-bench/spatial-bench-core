@@ -3,10 +3,10 @@
 //!
 //! One implementation, two callers — when these helpers were mirrored in
 //! `run` and `conform`, the mirrors drifted the first time resolution gained
-//! a new branch (day 1.5's manifest-relative drivers), and `conform` started
+//! a new branch ('s manifest-relative drivers), and `conform` started
 //! refusing a subject the run path served happily.
 //!
-//! Resolution order for a driver crate: a manifest-relative path (day 1.5 —
+//! Resolution order for a driver crate: a manifest-relative path (—
 //! the bencher layout, where driver assets live beside the manifest), then an
 //! engine-owned crate under the engine checkout (transitional), then the
 //! published version the manifest pins. For a subject's source: a

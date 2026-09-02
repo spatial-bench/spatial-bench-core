@@ -5,7 +5,7 @@ catalog/selector/vocabulary, two-phase codegen with a content-keyed build cache,
 the criterion driver and harness contract, machine fingerprinting (§9), pinned
 `cargo-git` builds with lockfile provenance (§4) and the CLI run path are working.
 Still open here: the `perf` runner and wrapper (§11), the nanoflann shim (`exec`
-adapter), `submit`/`conform` (§8, §13) and charting (day 2). This document was
+adapter), `submit`/`conform` (§8, §13) and charting. This document was
 originally written in the context of the kiddo project (`../kiddo`).
 
 Supersedes an earlier draft that put a kiddo-specific catalog inside kiddo, and a second

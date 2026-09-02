@@ -68,11 +68,11 @@ pub struct SubjectRequest {
     pub build_root: PathBuf,
     pub toolchain: crate::toolchain::Version,
     /// The engine checkout to patch bencher-resident driver crates' core/
-    /// measure deps to (day 1.5). `None` — registry versions stand.
+    /// measure deps to. `None` — registry versions stand.
     pub engine_root: Option<PathBuf>,
     /// rust-codegen only: everything the two-phase generation and build need.
     pub codegen: Option<CodegenInputs>,
-    /// exec only: the manifest's build recipe and source pin (day 1.5).
+    /// exec only: the manifest's build recipe and source pin.
     pub exec: Option<crate::exec::ExecInputs>,
 }
 
@@ -109,7 +109,7 @@ pub struct Prepared {
     pub toolchain: crate::toolchain::Version,
     pub rustflags: Option<String>,
     /// The argv that runs the driver: `[binary]` for compiled drivers,
-    /// `[venv python, driver.py]` for python exec subjects (day 1.5). The
+    /// `[venv python, driver.py]` for python exec subjects. The
     /// harness contract's transport is identical either way.
     pub program: Vec<String>,
     /// The library revision actually built against — the resolved git sha for
@@ -342,9 +342,9 @@ mod tests {
 
     /// The old failure mode: a subject declaring `exec` died with "declares no
     /// driver macro", which described nothing. The dispatch refuses by name,
-    /// saying what is missing and why. (Day 1.5: exec subjects now prepare —
+    /// saying what is missing and why. (exec subjects now prepare —
     /// see the exec test below.)
-    /// Day 1.5: exec subjects prepare through their language builder. The
+    /// exec subjects prepare through their language builder. The
     /// full build (fetch the pinned library, compile the shim) is exercised
     /// by the live e2e run; here the defensive path matters — an exec request
     /// without its inputs is a caller bug, refused rather than guessed at.

@@ -183,7 +183,7 @@ fn subjects_dir(cli: &Cli) -> Result<PathBuf, String> {
     if let Some(dir) = &cli.subjects {
         return Ok(dir.clone());
     }
-    // Day 1.5: the catalog lives in the bencher repo — discovered as the
+    // the catalog lives in the bencher repo — discovered as the
     // conventional sibling checkout of the engine unless pointed elsewhere.
     if let Some(root) = engine_root(cli) {
         if let Some(parent) = root.parent() {
@@ -195,7 +195,7 @@ fn subjects_dir(cli: &Cli) -> Result<PathBuf, String> {
     }
     Err(
         "cannot find the subjects directory. The catalog lives in the \
-         spatial-bench-benchers repo (day 1.5): pass --subjects <bencher>/subjects \
+         spatial-bench-benchers repo: pass --subjects <bencher>/subjects \
          or set SPATIAL_BENCH_SUBJECTS"
             .to_owned(),
     )
@@ -281,7 +281,7 @@ fn discover_chart() -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// The soft-fail guidance when the charting tool is absent (day-two TODO).
+/// The soft-fail guidance when the charting tool is absent ().
 fn install_guidance() -> String {
     let engine_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let crate_dir = engine_root.join("crates/spatial-bench-charting");
@@ -534,7 +534,7 @@ fn subject_paths(cli: &Cli) -> Result<std::collections::BTreeMap<String, PathBuf
             .ok_or_else(|| format!("--subject-path wants NAME=DIR, got `{raw}`"))?;
         let dir =
             std::fs::canonicalize(dir).map_err(|e| format!("--subject-path {name}: {dir}: {e}"))?;
-        // S2: the path is interpolated into a generated Cargo.toml; a quote,
+        // the path is interpolated into a generated Cargo.toml; a quote,
         // backslash or newline would inject or corrupt keys there.
         if !spatial_bench_core::build::toml_safe_path(&dir) {
             return Err(format!(
@@ -600,7 +600,7 @@ fn cmd_fingerprint(write: bool) -> Result<(), String> {
     let path = spatial_bench_core::fingerprint::path();
     if write {
         if let Some(raw) = std::env::var_os("SPATIAL_BENCH_FINGERPRINT") {
-            // S6: sudo often resets the environment, so the path the user set
+            // sudo often resets the environment, so the path the user set
             // may not be the path this process writes. Say both out loud.
             eprintln!(
                 "note: SPATIAL_BENCH_FINGERPRINT is set to {}; under sudo this \
@@ -646,7 +646,7 @@ fn render(key: &str, value: &spatial_bench_core::tag::TagValue) -> String {
 
 fn show(catalog: &Catalog, picker: &Picker, runner: Runner, budget: &Budget) -> Vec<String> {
     // The runner is the list's first row: it is a choice like any other, and
-    // threads straight into run_selection (D4). Only implemented runners are
+    // threads straight into run_selection . Only implemented runners are
     // offered — a menu item that ends in a refusal is not a choice.
     let available: Vec<Runner> = catalog
         .runners_for(&picker.selection())
@@ -752,7 +752,7 @@ fn interactive(cli: &Cli) -> Result<(), String> {
                     continue;
                 };
                 if key == "runner" {
-                    // D4: choose from what the selection supports and the
+                    // choose from what the selection supports and the
                     // engine implements; the rest are named so their absence
                     // is explained rather than silent.
                     let parsed: Vec<Runner> = catalog

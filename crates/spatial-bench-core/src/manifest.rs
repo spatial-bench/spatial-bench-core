@@ -47,7 +47,7 @@ pub struct Source {
     /// Mandatory: results are only comparable over time if the exact built
     /// revision is recorded. See the design's pinning-and-provenance section.
     pub pinned_ref: String,
-    /// The exact commit the ref must resolve to (S1). Git tags are mutable: a
+    /// The exact commit the ref must resolve to . Git tags are mutable: a
     /// moved tag would otherwise compile different code under the same ref
     /// name, detectable only after the fact in the run header. Declared here,
     /// the build refuses anything else — "detectable" becomes "refused".
@@ -64,15 +64,15 @@ pub struct Driver {
     /// exec subjects.
     #[serde(rename = "crate", default)]
     pub crate_name: Option<String>,
-    /// Day 1.5, exec only: the driver's language — `cxx` or `python`. It
+    /// Exec only: the driver's language — `cxx` or `python`. It
     /// decides how the entry is built and invoked; the harness contract it
     /// speaks is the same for every language.
     pub lang: Option<String>,
-    /// Day 1.5, exec only: the driver's entry file, relative to this
+    /// Exec only: the driver's entry file, relative to this
     /// manifest's directory — `shim.cpp` for cxx, `driver.py` for python.
     pub entry: Option<String>,
     /// Where the driver's assets live, **relative to this manifest's
-    /// directory** (day 1.5: the catalog moved to the bencher repo, and every
+    /// directory** ( the catalog moved to the bencher repo, and every
     /// subject dir is self-contained — `driver = "driver"` for a rust
     /// codegen crate beside the manifest, `entry` files for exec subjects).
     /// When set and present, it wins over the engine's own crates and the
@@ -242,7 +242,7 @@ pub enum ManifestError {
         why: String,
     },
     /// A declared `sha` that is not a full commit id. Anything shorter would
-    /// silently weaken the pin to a prefix match (S1).
+    /// silently weaken the pin to a prefix match .
     BadSha {
         subject: String,
         found: String,

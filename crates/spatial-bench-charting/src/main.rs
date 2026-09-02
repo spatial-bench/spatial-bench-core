@@ -1,5 +1,5 @@
 //! `spatial-bench-chart` — the chart renderer for spatial-bench run
-//! documents (day-two TODO: charting).
+//! documents (: charting).
 //!
 //! Its own binary so the bench runner never links charting code or its
 //! dependencies. The main `spatial-bench chart` subcommand is a thin

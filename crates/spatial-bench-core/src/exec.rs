@@ -1,4 +1,4 @@
-//! The exec adapter's builders (day 1.5): how a non-rust driver gets built
+//! The exec adapter's builders: how a non-rust driver gets built
 //! and invoked, per language.
 //!
 //! The harness contract is identical for every language — `--list`, a RunSpec
@@ -21,7 +21,7 @@ pub struct ExecInputs {
     pub build: Build,
     /// The manifest's source pin.
     pub source: Source,
-    /// The expected library sha (S1), when the manifest declares one. The cxx
+    /// The expected library sha , when the manifest declares one. The cxx
     /// build verifies the fetched sources against it.
     pub expected_sha: Option<String>,
 }
@@ -34,7 +34,7 @@ pub struct Built {
     pub program: Vec<String>,
     /// The library revision actually built against — the resolved git commit
     /// sha for cxx. `None` when the pin is a package version (python), whose
-    /// immutability is the provenance (S1).
+    /// immutability is the provenance .
     pub resolved_sha: Option<String>,
     /// How many compile-time specialisations the binary carries (the dims
     /// list for cxx; one for python, which dispatches at run time).
@@ -284,7 +284,7 @@ fn prepare_python(
 
 /// Fetch the library sources at the manifest's pin, returning the checkout
 /// directory and the resolved commit sha. Keyed by the resolved sha: a moved
-/// ref lands in a different directory and is caught by the sha check (S1).
+/// ref lands in a different directory and is caught by the sha check .
 fn fetch_lib_source(
     subject: &str,
     source: &Source,

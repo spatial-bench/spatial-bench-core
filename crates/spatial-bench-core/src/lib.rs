@@ -46,7 +46,7 @@ pub fn load_subjects(dir: &std::path::Path) -> Result<Catalog, manifest::Manifes
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    //! The catalog moved out of the engine on day 1.5 — it lives in the
+    //! The catalog moved out of the engine on — it lives in the
     //! bencher checkout. Tests assert against the real catalog by design, so
     //! they discover it rather than carrying a copy: `SPATIAL_BENCH_BENCHERS`
     //! first, then the conventional sibling checkout beside the engine
@@ -72,7 +72,7 @@ pub(crate) mod test_support {
             .join("subjects");
         assert!(
             sibling.is_dir(),
-            "no bencher catalog found (looked at {}). Day 1.5 moved the \
+            "no bencher catalog found (looked at {}).  moved the \
              catalog out of the engine: clone spatial-bench-benchers beside \
              this checkout, or set SPATIAL_BENCH_BENCHERS.",
             sibling.display()

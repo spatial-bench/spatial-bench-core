@@ -86,7 +86,7 @@ pub fn load_dir(dir: &Path) -> Result<Catalog, ManifestError> {
     // reference an extension key declared by the subject it belongs to. The
     // vocabulary's own message is carried through: "value `x` is not allowed
     // for `impl` … a new subject belongs in `UNIVERSAL`" says what to do;
-    // the key name alone said nothing (D5).
+    // the key name alone said nothing .
     for case in &cases {
         let subject = case
             .tags
@@ -122,9 +122,9 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
         });
     }
 
-    // D2: the source kind is typed here or nowhere — same closed-vocabulary
+    // the source kind is typed here or nowhere — same closed-vocabulary
     // rule as the adapter, so a typo is a load error, not a run-time surprise
-    // phrased as "not implemented". `pypi` is the python exec story (day 1.5):
+    // phrased as "not implemented". `pypi` is the python exec story:
     // the pin is the immutable PyPI version.
     match manifest.source.kind.as_str() {
         "cargo-git" | "git" | "pypi" => {}
@@ -135,7 +135,7 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
             });
         }
     }
-    // S1: a declared sha must look like a full commit id — anything shorter
+    // a declared sha must look like a full commit id — anything shorter
     // would silently weaken the pin to a prefix match.
     if let Some(sha) = &manifest.source.sha {
         if !crate::build::is_commit_id(sha) {
@@ -170,7 +170,7 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
         }
     }
     if adapter == crate::adapter::Adapter::Exec {
-        // Day 1.5: an exec subject names its language and entry file, and a
+        // an exec subject names its language and entry file, and a
         // build recipe — the harness contract is the interface, but the build
         // is the language's.
         match manifest.driver.lang.as_deref() {
@@ -397,7 +397,7 @@ fn tag_value(raw: &toml::Value, key: &str, subject: &str) -> Result<TagValue, Ma
 /// selector language and mean itself when parsed back. `a|b` would split into
 /// an OR, `a,b` into two clauses, `a..b` into a range, `*` into "key exists" —
 /// all silently wrong in a chart, so they are load errors rather than values
-/// a selector cannot say (D1: the closed-vocabulary rule applied to values,
+/// a selector cannot say (the closed-vocabulary rule applied to values,
 /// not just keys).
 fn ensure_selectable(key: &str, value: &TagValue, subject: &str) -> Result<(), ManifestError> {
     let expr = value.to_string();
@@ -507,7 +507,7 @@ mod tests {
         .unwrap();
     }
 
-    /// D2: a `[source] kind` the engine does not build is a load error naming
+    /// a `[source] kind` the engine does not build is a load error naming
     /// the subject — the same closed-vocabulary rule as the adapter, so a
     /// typo is not discovered as "not implemented" minutes into a run.
     #[test]
@@ -526,7 +526,7 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    /// D1: a value the selector language cannot express is a load error —
+    /// a value the selector language cannot express is a load error —
     /// `a|b` would split into an OR and silently select the wrong things.
     /// Declared vocabulary is checked too, since it is what the picker offers.
     #[test]
@@ -550,7 +550,7 @@ mod tests {
         std::fs::remove_dir_all(&tmp).ok();
     }
 
-    /// D5: a vocabulary violation names the remedy — a new `impl` value is an
+    /// a vocabulary violation names the remedy — a new `impl` value is an
     /// engine change in `UNIVERSAL`, not a manifest bug.
     #[test]
     fn a_vocabulary_violation_names_the_remedy() {

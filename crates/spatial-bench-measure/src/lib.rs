@@ -135,7 +135,7 @@ pub fn measure(
     }
     // Refused, not clamped: the budget is the harness contract, and a driver
     // that quietly measured with a different sample size than it was told
-    // would put a number in the dataset that nothing explains (D6). Criterion
+    // would put a number in the dataset that nothing explains . Criterion
     // panics on a zero duration and a sample size below 10; we refuse with
     // the reason instead.
     if budget.sample_size < 10 {
@@ -212,7 +212,7 @@ fn sample_count(path: &Path) -> Option<u64> {
 
 /// Point fd 1 at fd 2 for the guard's lifetime.
 ///
-/// **Invariants (S3):** fd 1 always refers to either the harness pipe or fd 2 —
+/// **Invariants :** fd 1 always refers to either the harness pipe or fd 2 —
 /// never closed, never left dangling; `saved` is moved into the guard and
 /// closed exactly once, in `Drop`, which runs even if a benchmark panics
 /// mid-measurement. If `dup` fails the guard does not engage and measurement
@@ -396,7 +396,7 @@ mod tests {
         assert!(measure(&spec, &budget, 0, || 42).is_err());
     }
 
-    /// D6: an impossible budget is refused with the reason, not silently
+    /// an impossible budget is refused with the reason, not silently
     /// clamped into a measurement the contract did not ask for.
     #[test]
     fn an_impossible_budget_is_refused_not_clamped() {
