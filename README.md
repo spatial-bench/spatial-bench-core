@@ -16,11 +16,16 @@ command above so any run is reproducible in CI.
 
 ## Two things shape the design
 
-**Every subject is vendored.** Manifests and harnesses for every library under
-test live in this repository, including for libraries whose authors maintain
-this one. A subject that declares what is measured about itself can flatter
-itself; a comparison whose subjects wrote their own rules cannot be shown to be
-fair. The cost is that this repository lags its subjects by a review cycle.
+**Every subject is vendored — in the bencher repo.** Manifests, drivers and
+shims for every library under test live in
+[spatial-bench-benchers](https://github.com/sdd/spatial-bench-benchers), a
+separate reviewed catalog, including for libraries whose authors maintain this
+one. A subject that declares what is measured about itself can flatter itself;
+a comparison whose subjects wrote their own rules cannot be shown to be fair.
+The cost is that the catalog lags its subjects by a review cycle. Day 1.5
+relocated the catalog out of this engine, which now carries no subject
+knowledge at all: point `--subjects` (or `SPATIAL_BENCH_SUBJECTS`) at a
+bencher checkout.
 
 **The engine owns the harness.** Measurement methodology — point generation,
 seeds, what sits inside the timed region — is the same code for every subject.
@@ -32,7 +37,9 @@ See [docs/design.md](docs/design.md).
 ## Status
 
 Working: catalog loading, the selector language, the interactive picker,
-`list` / `describe` / `subjects`, machine hashing, result paths.
+`list` / `describe` / `subjects` / `conform`, machine fingerprinting,
+two-phase driver generation with cached builds, executing runs (criterion and
+perf runners), run documents under `~/.local/share/spatial-bench/runs/`.
 
-Not yet implemented: the drivers themselves, code generation, executing a run,
-hardware fingerprinting, and dataset submission.
+Not yet implemented: charting, `submit`, exec drivers for non-rust subjects
+(python, cxx), and dataset submission.

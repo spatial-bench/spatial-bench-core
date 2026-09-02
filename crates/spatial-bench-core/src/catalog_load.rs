@@ -55,27 +55,38 @@ pub fn load_dir(dir: &Path) -> Result<Catalog, ManifestError> {
         let (subject_cases, ext) = lower(&manifest)?;
         vocab
             .extend(&manifest.name, ext)
-            .map_err(|e| ManifestError::UnknownKey {
+            .map_err(|e| ManifestError::Vocab {
                 subject: manifest.name.clone(),
-                key: format!("{e:?}"),
+                message: e.to_string(),
             })?;
         subjects.insert(
             manifest.name.clone(),
             crate::catalog::SubjectFacts {
                 pinned_ref: manifest.source.pinned_ref.clone(),
+                source_kind: manifest.source.kind.clone(),
+                repo: manifest.source.repo.clone(),
+                driver_version: manifest.driver.version.clone(),
+                expected_sha: manifest.source.sha.clone(),
+                source_package: manifest.source.package.clone(),
+                driver_path: manifest.driver.path.clone(),
+                manifest_dir: subject_dir.clone(),
                 features: manifest.driver.features.clone(),
                 min_rustc: manifest
                     .toolchain
                     .as_ref()
                     .and_then(|t| t.min_rustc.clone()),
                 rustflags: manifest.driver.rustflags.clone(),
+                build: manifest.build.clone(),
             },
         );
         cases.extend(subject_cases);
     }
 
     // Validation happens after every manifest is in, so a case may legitimately
-    // reference an extension key declared by the subject it belongs to.
+    // reference an extension key declared by the subject it belongs to. The
+    // vocabulary's own message is carried through: "value `x` is not allowed
+    // for `impl` … a new subject belongs in `UNIVERSAL`" says what to do;
+    // the key name alone said nothing (D5).
     for case in &cases {
         let subject = case
             .tags
@@ -85,9 +96,9 @@ pub fn load_dir(dir: &Path) -> Result<Catalog, ManifestError> {
         for (key, value) in &case.tags {
             vocab
                 .validate(key, value)
-                .map_err(|_| ManifestError::UnknownKey {
+                .map_err(|e| ManifestError::Vocab {
                     subject: subject.clone(),
-                    key: key.to_string(),
+                    message: e.to_string(),
                 })?;
         }
     }
@@ -111,7 +122,95 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
         });
     }
 
+    // D2: the source kind is typed here or nowhere — same closed-vocabulary
+    // rule as the adapter, so a typo is a load error, not a run-time surprise
+    // phrased as "not implemented". `pypi` is the python exec story (day 1.5):
+    // the pin is the immutable PyPI version.
+    match manifest.source.kind.as_str() {
+        "cargo-git" | "git" | "pypi" => {}
+        other => {
+            return Err(ManifestError::UnknownSourceKind {
+                subject: manifest.name.clone(),
+                found: other.to_owned(),
+            });
+        }
+    }
+    // S1: a declared sha must look like a full commit id — anything shorter
+    // would silently weaken the pin to a prefix match.
+    if let Some(sha) = &manifest.source.sha {
+        if !crate::build::is_commit_id(sha) {
+            return Err(ManifestError::BadSha {
+                subject: manifest.name.clone(),
+                found: sha.clone(),
+            });
+        }
+    }
+
+    // The adapter is typed here or nowhere: an unknown kind is a load error
+    // naming the subject (§5's dispatch needs to know every kind it will see),
+    // and a two-phase driver without a macro is a broken manifest.
+    let adapter = crate::adapter::Adapter::parse(&manifest.driver.adapter).ok_or(
+        ManifestError::UnknownAdapter {
+            subject: manifest.name.clone(),
+            found: manifest.driver.adapter.clone(),
+        },
+    )?;
+    if adapter == crate::adapter::Adapter::RustCodegen {
+        if manifest.driver.macro_name.is_none() {
+            return Err(ManifestError::UnknownKey {
+                subject: manifest.name.clone(),
+                key: "driver.macro is required for the rust-codegen adapter".to_owned(),
+            });
+        }
+        if manifest.driver.crate_name.is_none() {
+            return Err(ManifestError::UnknownKey {
+                subject: manifest.name.clone(),
+                key: "driver.crate is required for the rust-codegen adapter".to_owned(),
+            });
+        }
+    }
+    if adapter == crate::adapter::Adapter::Exec {
+        // Day 1.5: an exec subject names its language and entry file, and a
+        // build recipe — the harness contract is the interface, but the build
+        // is the language's.
+        match manifest.driver.lang.as_deref() {
+            Some("cxx") | Some("python") => {}
+            other => {
+                return Err(ManifestError::UnknownKey {
+                    subject: manifest.name.clone(),
+                    key: format!(
+                        "driver.lang {:?} — exec subjects declare `cxx` or `python`",
+                        other.unwrap_or("(missing)")
+                    ),
+                });
+            }
+        }
+        if manifest.driver.entry.is_none() {
+            return Err(ManifestError::UnknownKey {
+                subject: manifest.name.clone(),
+                key: "driver.entry is required for exec subjects".to_owned(),
+            });
+        }
+        if manifest.build.is_none() {
+            return Err(ManifestError::UnknownKey {
+                subject: manifest.name.clone(),
+                key: "a [build] recipe is required for exec subjects".to_owned(),
+            });
+        }
+    }
+
     let ns = crate::vocab::namespace_of(&manifest.name);
+    // Declared values are checked here as well as used ones: a value no case
+    // happens to use is still vocabulary the selector must be able to say.
+    for (key, decl) in &manifest.vocab {
+        for raw in &decl.values.clone().unwrap_or_default() {
+            let value = TagValue::parse(raw).map_err(|_| ManifestError::UnknownKey {
+                subject: manifest.name.clone(),
+                key: format!("{ns}.{key}: bad declared value `{raw}`"),
+            })?;
+            ensure_selectable(&format!("{ns}.{key}"), &value, &manifest.name)?;
+        }
+    }
     let ext: Vec<ExtKey> = manifest
         .vocab
         .iter()
@@ -164,12 +263,12 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
                 tags,
                 params: lower_params(&decl.params, &manifest.name)?,
                 runners: decl.runners.clone(),
-                adapter: manifest.driver.adapter.clone(),
+                adapter,
                 subject: manifest.name.clone(),
                 driver_crate: manifest.driver.crate_name.clone(),
                 driver_macro: manifest.driver.macro_name.clone(),
-                command: decl.command.clone(),
-                output: decl.output.clone(),
+                driver_lang: manifest.driver.lang.clone(),
+                driver_entry: manifest.driver.entry.clone(),
                 compile_time_keys: compile_time_keys.clone(),
             });
         }
@@ -277,7 +376,7 @@ fn toml_tags(raw: &BTreeMap<String, toml::Value>, subject: &str) -> Result<TagMa
 }
 
 fn tag_value(raw: &toml::Value, key: &str, subject: &str) -> Result<TagValue, ManifestError> {
-    match raw {
+    let value = match raw {
         toml::Value::String(s) => TagValue::parse(s).map_err(|_| ManifestError::UnknownKey {
             subject: subject.to_owned(),
             key: format!("{key}: bad value `{s}`"),
@@ -289,7 +388,51 @@ fn tag_value(raw: &toml::Value, key: &str, subject: &str) -> Result<TagValue, Ma
             subject: subject.to_owned(),
             key: format!("{key}: unsupported value {other:?}"),
         }),
+    }?;
+    ensure_selectable(key, &value, subject)?;
+    Ok(value)
+}
+
+/// Every tag value is selector-addressable, so it must be expressible in the
+/// selector language and mean itself when parsed back. `a|b` would split into
+/// an OR, `a,b` into two clauses, `a..b` into a range, `*` into "key exists" —
+/// all silently wrong in a chart, so they are load errors rather than values
+/// a selector cannot say (D1: the closed-vocabulary rule applied to values,
+/// not just keys).
+fn ensure_selectable(key: &str, value: &TagValue, subject: &str) -> Result<(), ManifestError> {
+    let expr = value.to_string();
+    let broken = |why: &str| {
+        Err(ManifestError::BadSelectorValue {
+            subject: subject.to_owned(),
+            key: key.to_owned(),
+            value: expr.clone(),
+            why: why.to_owned(),
+        })
+    };
+
+    if let TagValue::Word(word) = value {
+        if word.contains([',', '|']) || word.contains("..") || word == "*" {
+            return broken(
+                "the selector language cannot express it: it contains `,`, `|`, \
+                 `..`, or reads as the wildcard `*`",
+            );
+        }
     }
+
+    // Whatever the shape, it must survive a round trip through the selector:
+    // parse `key=<value>` and require the clause to admit exactly this value.
+    // Catches anything that parses back as a different type or splits into
+    // pieces the explicit checks above missed.
+    let parsed = match crate::selector::Selector::parse(&format!("{key}={expr}")) {
+        Ok(parsed) => parsed,
+        Err(_) => return broken("cannot be written into a selector clause"),
+    };
+    let mut probe = TagMap::new();
+    probe.insert(crate::tag::TagKey::Owned(key.to_owned()), value.clone());
+    if !parsed.admits_point(&probe) {
+        return broken("does not mean itself when parsed back out of a selector");
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -298,7 +441,7 @@ mod tests {
     use crate::selector::SelectorSet;
 
     fn subjects_dir() -> std::path::PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../subjects")
+        crate::test_support::subjects_dir()
     }
 
     /// Both vendored manifests parse under the current schema.
@@ -334,6 +477,171 @@ mod tests {
             let manifest = parse(&subjects_dir().join(name).join("subject.toml")).unwrap();
             assert!(!manifest.source.pinned_ref.is_empty(), "{name} is unpinned");
         }
+    }
+
+    /// A shared fixture writer: one minimal valid manifest per name, with a
+    /// source kind and any extra TOML (vocab tables, extra case tags).
+    fn write_fixture(dir: &Path, name: &str, source_kind: &str, extra: &str) {
+        let subject_dir = dir.join(name);
+        std::fs::create_dir_all(&subject_dir).unwrap();
+        std::fs::write(
+            subject_dir.join("subject.toml"),
+            format!(
+                "schema = 1\n\
+                 name = \"{name}\"\n\
+                 domain = \"spatial_index\"\n\
+                 [source]\n\
+                 kind = \"{source_kind}\"\n\
+                 repo = \"https://example.com/{name}\"\n\
+                 pinned_ref = \"v1\"\n\
+                 [driver]\n\
+                 adapter = \"rust-codegen\"\n\
+                 crate = \"{name}-driver\"\n\
+                 macro = \"bench_case\"\n\
+                 {extra}\
+                 [[case]]\n\
+                 runners = [\"criterion\"]\n\
+                 tags.impl = \"{name}\"\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    /// D2: a `[source] kind` the engine does not build is a load error naming
+    /// the subject — the same closed-vocabulary rule as the adapter, so a
+    /// typo is not discovered as "not implemented" minutes into a run.
+    #[test]
+    fn an_unknown_source_kind_is_rejected_at_load() {
+        let tmp = std::env::temp_dir().join(format!("sb-load-kind-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        write_fixture(&tmp, "odd", "cvs", "");
+        match load_dir(&tmp) {
+            Err(ManifestError::UnknownSourceKind { subject, found }) => {
+                assert_eq!(subject, "odd");
+                assert_eq!(found, "cvs");
+            }
+            Ok(_) => panic!("expected a source-kind rejection, got a loaded catalog"),
+            Err(other) => panic!("expected a source-kind rejection, got {other:?}"),
+        }
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// D1: a value the selector language cannot express is a load error —
+    /// `a|b` would split into an OR and silently select the wrong things.
+    /// Declared vocabulary is checked too, since it is what the picker offers.
+    #[test]
+    fn selector_unexpressible_values_are_rejected_at_load() {
+        let tmp = std::env::temp_dir().join(format!("sb-load-sel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        write_fixture(
+            &tmp,
+            "odd",
+            "cargo-git",
+            "[vocab]\nstorage.values = [\"heap\", \"a|b\"]\n",
+        );
+        match load_dir(&tmp) {
+            Err(ManifestError::BadSelectorValue { key, value, .. }) => {
+                assert_eq!(key, "odd.storage");
+                assert_eq!(value, "a|b");
+            }
+            Ok(_) => panic!("expected a selector-value rejection, got a loaded catalog"),
+            Err(other) => panic!("expected a selector-value rejection, got {other:?}"),
+        }
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// D5: a vocabulary violation names the remedy — a new `impl` value is an
+    /// engine change in `UNIVERSAL`, not a manifest bug.
+    #[test]
+    fn a_vocabulary_violation_names_the_remedy() {
+        let tmp = std::env::temp_dir().join(format!("sb-load-vocab-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        write_fixture(&tmp, "newsptree", "cargo-git", "");
+        match load_dir(&tmp) {
+            Err(ManifestError::Vocab { subject, message }) => {
+                assert_eq!(subject, "newsptree");
+                assert!(
+                    message.contains("UNIVERSAL"),
+                    "the remedy must be named: {message}"
+                );
+            }
+            Ok(_) => panic!("expected a vocabulary rejection, got a loaded catalog"),
+            Err(other) => panic!("expected a vocabulary rejection, got {other:?}"),
+        }
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// A manifest naming an adapter this engine does not know is a load error
+    /// naming the subject — not a run-time surprise. The closed-vocabulary
+    /// rule (§6) applies to the manifest itself.
+    #[test]
+    fn an_unknown_adapter_is_rejected_at_load() {
+        let tmp = std::env::temp_dir().join(format!("sb-load-adapter-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let dir = tmp.join("weird");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("subject.toml"),
+            "schema = 1\n\
+             name = \"weird\"\n\
+             domain = \"spatial_index\"\n\
+             [source]\n\
+             kind = \"cargo-git\"\n\
+             repo = \"https://example.com/weird\"\n\
+             pinned_ref = \"v1\"\n\
+             [driver]\n\
+             adapter = \"rust-coden\"\n\
+             crate = \"weird-driver\"\n\
+             [[case]]\n\
+             runners = [\"criterion\"]\n\
+             tags.impl = \"weird\"\n",
+        )
+        .unwrap();
+        match load_dir(&tmp) {
+            Err(ManifestError::UnknownAdapter { subject, found }) => {
+                assert_eq!(subject, "weird");
+                assert_eq!(found, "rust-coden");
+            }
+            Ok(_) => panic!("expected an adapter rejection, got a loaded catalog"),
+            Err(other) => panic!("expected an adapter rejection, got {other:?}"),
+        }
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// A two-phase driver without a macro cannot generate anything; caught
+    /// where the manifest is reviewed, not minutes into a run.
+    #[test]
+    fn a_codegen_driver_without_a_macro_is_rejected_at_load() {
+        let tmp = std::env::temp_dir().join(format!("sb-load-macro-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let dir = tmp.join("silent");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("subject.toml"),
+            "schema = 1\n\
+             name = \"silent\"\n\
+             domain = \"spatial_index\"\n\
+             [source]\n\
+             kind = \"cargo-git\"\n\
+             repo = \"https://example.com/silent\"\n\
+             pinned_ref = \"v1\"\n\
+             [driver]\n\
+             adapter = \"rust-codegen\"\n\
+             crate = \"silent-driver\"\n\
+             [[case]]\n\
+             runners = [\"criterion\"]\n\
+             tags.impl = \"silent\"\n",
+        )
+        .unwrap();
+        match load_dir(&tmp) {
+            Err(ManifestError::UnknownKey { subject, key }) => {
+                assert_eq!(subject, "silent");
+                assert!(key.contains("driver.macro"), "{key}");
+            }
+            Ok(_) => panic!("expected a macro rejection, got a loaded catalog"),
+            Err(other) => panic!("expected a macro rejection, got {other:?}"),
+        }
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     /// A case's `impl` must match the manifest that declares it, so no subject
@@ -409,7 +717,11 @@ mod tests {
     fn unconstrained_params_use_their_default() {
         let catalog = catalog();
         let all = catalog.points(&SelectorSet::default());
-        assert_eq!(all.len(), 72 + 8, "one point per case at default params");
+        assert_eq!(
+            all.len(),
+            72 + 8 + 8,
+            "one point per case at default params"
+        );
         for (_, tags) in &all {
             assert_eq!(tags.get("tree_size"), Some(&TagValue::Int(1 << 20)));
             assert_eq!(tags.get("query_count"), Some(&TagValue::Int(1000)));
@@ -460,7 +772,7 @@ mod tests {
             .iter()
             .map(|(c, _)| c.subject.clone())
             .collect();
-        assert_eq!(subjects.len(), 2, "core vocabulary should span subjects");
+        assert_eq!(subjects.len(), 3, "core vocabulary should span subjects");
     }
 
     /// Extension keys stay private to their subject: asking about kiddo's stem

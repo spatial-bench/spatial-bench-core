@@ -135,9 +135,57 @@ pub type TagMap = BTreeMap<TagKey, TagValue>;
 #[derive(Debug)]
 pub enum TagError {
     UnknownKey(String),
-    BadValue { key: String, raw: String },
-    NotAllowed { key: String, value: String },
+    BadValue {
+        key: String,
+        raw: String,
+    },
+    NotAllowed {
+        key: String,
+        value: String,
+        allowed: Vec<String>,
+    },
+    /// An extension-key declaration that would defeat the namespacing rule.
+    BadExtension {
+        key: String,
+        reason: String,
+    },
     NaN,
+}
+
+impl fmt::Display for TagError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TagError::UnknownKey(key) => write!(f, "unknown tag key `{key}`"),
+            TagError::BadValue { key, raw } => {
+                write!(f, "`{raw}` is not a valid value for `{key}`")
+            }
+            TagError::NotAllowed {
+                key,
+                value,
+                allowed,
+            } => {
+                write!(
+                    f,
+                    "value `{value}` is not allowed for `{key}` (allowed: {})",
+                    allowed.join(", ")
+                )?;
+                if *key == "impl" {
+                    // `impl` is the only allow-list that grows per subject: a
+                    // new subject is an engine change, made here.
+                    write!(
+                        f,
+                        " — a new subject belongs in `UNIVERSAL` in \
+                         crates/spatial-bench-core/src/vocab.rs"
+                    )?;
+                }
+                Ok(())
+            }
+            TagError::BadExtension { key, reason } => {
+                write!(f, "extension key `{key}` {reason}")
+            }
+            TagError::NaN => write!(f, "NaN and infinity are not usable tag values"),
+        }
+    }
 }
 
 /// Build a [`TagMap`] literal:

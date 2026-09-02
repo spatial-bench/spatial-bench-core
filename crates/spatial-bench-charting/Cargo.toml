@@ -1,0 +1,31 @@
+[package]
+name = "spatial-bench-charting"
+description = "Chart renderer for spatial-bench run documents — terminal (kitty graphics protocol) and PNG"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "spatial-bench-chart"
+path = "src/main.rs"
+
+# An optional side tool, deliberately its own binary: the bench runner never
+# links any of this (day-two TODO — the charting section). Rendering goes
+# through plotters — the leanness rule applies to the runner and harness, not
+# to a niche chart tool that should use the best tool for the job.
+
+[dependencies]
+spatial-bench-core.workspace = true
+clap = { version = "4", features = ["derive"] }
+serde_json.workspace = true
+plotters = { version = "0.3", default-features = false, features = [
+  "bitmap_backend",
+  "bitmap_encoder",
+  "ttf",
+  "all_series",
+  "all_elements",
+] }
+# tty probes: isatty and raw-mode reads for the kitty-protocol handshake.
+libc = "0.2"

@@ -213,7 +213,7 @@ mod tests {
     use super::*;
 
     fn catalog() -> Catalog {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../subjects");
+        let dir = crate::test_support::subjects_dir();
         crate::catalog_load::load_dir(&dir).unwrap()
     }
 
@@ -333,8 +333,8 @@ mod tests {
         assert!(p > c, "perf {p:?} should exceed criterion {c:?}");
         assert_eq!(
             c,
-            Duration::from_secs(8) * 80,
-            "80 points at warm-up+measurement"
+            Duration::from_secs(8) * 88,
+            "88 points at warm-up+measurement (72 kiddo + 8 nanoflann + 8 pykdtree)"
         );
     }
 

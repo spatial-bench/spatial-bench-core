@@ -34,6 +34,37 @@ impl std::fmt::Display for Version {
     }
 }
 
+/// The rustc this environment builds with by default, so a resolved toolchain
+/// that already matches needs no rustup hop — and a machine without rustup
+/// still works at its own version.
+pub fn active() -> Option<Version> {
+    let out = std::process::Command::new("rustc")
+        .arg("--version")
+        .output()
+        .ok()?;
+    parse_rustc_version(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// `rustc 1.98.0-nightly (0123 … 2026-06-15)` → `1.98.0`. The channel suffix
+/// cannot reach [`Version::parse`], and two nightlies of the same number do not
+/// agree on enough for a comparison to mean anything anyway.
+fn parse_rustc_version(text: &str) -> Option<Version> {
+    let raw = text.split_whitespace().nth(1)?;
+    Version::parse(raw.split(['-', ' ']).next()?)
+}
+
+/// The cargo command that builds with exactly `toolchain` (§4, one toolchain
+/// per run, enforced): plain cargo when it is already the active one or
+/// unconstrained, else rustup's `cargo +<version>` proxy — the run header
+/// records the resolved version, so the build must use exactly it.
+pub fn cargo(toolchain: &Version) -> std::process::Command {
+    let mut cmd = std::process::Command::new("cargo");
+    if *toolchain != Version(0, 0, 0) && Some(*toolchain) != active() {
+        cmd.arg(format!("+{toolchain}"));
+    }
+    cmd
+}
+
 /// The toolchain a run should use.
 ///
 /// Without a pin, it is the highest floor among selected subjects — the lowest
@@ -142,5 +173,18 @@ mod tests {
         let none = vec![("nanoflann".to_string(), None)];
         assert_eq!(resolve(&none, None).unwrap(), Version(0, 0, 0));
         assert_eq!(resolve(&none, Some("1.89.0")).unwrap(), Version(1, 89, 0));
+    }
+
+    #[test]
+    fn active_rustc_versions_parse_despite_channel_suffixes() {
+        assert_eq!(
+            parse_rustc_version("rustc 1.98.0-nightly (01dfd7924 2026-06-15)"),
+            Some(Version(1, 98, 0))
+        );
+        assert_eq!(
+            parse_rustc_version("rustc 1.89.0 (29tich 2026-06-15)"),
+            Some(Version(1, 89, 0))
+        );
+        assert_eq!(parse_rustc_version("not rustc at all"), None);
     }
 }

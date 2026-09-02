@@ -70,6 +70,7 @@ pub const UNIVERSAL: &[KeyDef] = &[
             "kiddo_v6",
             "kiddo_v5",
             "nanoflann",
+            "pykdtree",
             "pkdtree",
             "alglib",
             "skdtree",
@@ -129,7 +130,7 @@ pub const IDENTITY: &[KeyDef] = &[
     KeyDef {
         key: "metric",
         kind: Kind::Identity,
-        allowed: Some(&["squared_euclidean", "manhattan"]),
+        allowed: Some(&["squared_euclidean", "manhattan", "euclidean"]),
         pow2: false,
         doc: "distance metric",
     },
@@ -218,6 +219,7 @@ pub fn validate(key: &str, value: &crate::tag::TagValue) -> Result<(), TagError>
             return Err(TagError::NotAllowed {
                 key: key.to_owned(),
                 value: rendered,
+                allowed: allowed.iter().map(|s| s.to_string()).collect(),
             });
         }
     }
@@ -256,15 +258,15 @@ impl Vocabulary {
         let prefix = format!("{}.", namespace_of(subject));
         for key in &keys {
             if lookup(&key.key).is_some() {
-                return Err(TagError::NotAllowed {
+                return Err(TagError::BadExtension {
                     key: key.key.clone(),
-                    value: format!("shadows the core key `{}`", key.key),
+                    reason: format!("shadows the core key `{}`", key.key),
                 });
             }
             if !key.key.starts_with(&prefix) {
-                return Err(TagError::NotAllowed {
+                return Err(TagError::BadExtension {
                     key: key.key.clone(),
-                    value: format!("must be namespaced under `{prefix}`"),
+                    reason: format!("must be namespaced under `{prefix}`"),
                 });
             }
         }
@@ -286,6 +288,7 @@ impl Vocabulary {
                 return Err(TagError::NotAllowed {
                     key: key.to_owned(),
                     value: rendered,
+                    allowed: allowed.clone(),
                 });
             }
         }

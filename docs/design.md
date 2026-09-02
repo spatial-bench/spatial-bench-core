@@ -1,8 +1,12 @@
 # Tag-addressed benchmarking — design
 
-Status: **proposal / spec**. Nothing is wired up. `tools/spatial-bench/` holds a non-functional
-engine prototype so the shape is reviewable; it is destined for its own repo (§2) and this
-document travels with it.
+Status: **spec, largely implemented**. The engine lives in this repo (`crates/`):
+catalog/selector/vocabulary, two-phase codegen with a content-keyed build cache,
+the criterion driver and harness contract, machine fingerprinting (§9), pinned
+`cargo-git` builds with lockfile provenance (§4) and the CLI run path are working.
+Still open here: the `perf` runner and wrapper (§11), the nanoflann shim (`exec`
+adapter), `submit`/`conform` (§8, §13) and charting (day 2). This document was
+originally written in the context of the kiddo project (`../kiddo`).
 
 Supersedes an earlier draft that put a kiddo-specific catalog inside kiddo, and a second
 that let willing subjects ship their own manifests. Both are wrong: the engine benches
@@ -356,7 +360,7 @@ fingerprint. `$SPATIAL_BENCH_FINGERPRINT` overrides for containers and CI.
 ```toml
 schema  = 1
 taken   = "2026-08-04T11:02:19Z"
-machine = "k7f2qa"
+machine = "k7f2qa9vm3-x7q2m"
 
 [privileged]                       # needs root; captured once
 mem_speed_mts = 6000
@@ -372,6 +376,17 @@ chipset      = "AMD X870E"
 
 checksum = "b3:9f2a…"               # see below
 ```
+
+The hash is **two-part**, split on the privilege boundary the validation
+already has. The 10-character prefix covers the unprivileged components — it is
+the machine's identity, recomputable by any run without root, and unchanged by
+a re-capture. The 5-character suffix covers the privileged components; it is
+the literal `UNKNOWN` when memory was never verified (no fingerprint, or a
+capture whose privileged block is empty). A readability change — installing
+`decode-dimms`, capturing with or without root — moves only the suffix; the
+prefix proves it is still the same box. The full string is the join key:
+charts join on all of it, never the prefix alone, or unverified runs would
+merge into verified history.
 
 ### Validation on every run
 
@@ -428,14 +443,14 @@ Machine detail is not repeated in every run. `spatial-bench submit` extracts it 
 You said the example filename was a starting point, so:
 
 ```
-datasets/2026-08/20260804T123456Z-k7f2qa-criterion-01k2y7f3.json
+datasets/2026-08/20260804T123456Z-k7f2qa9vm3-x7q2m-criterion-01k2y7f3.json
                  └── UTC, ISO basic ──┘ └machine┘ └runner─┘ └run┘
 ```
 
 - **ISO basic form, no separators** — sorts lexicographically = chronologically, and
   contains no colon, which is illegal in Windows filenames. Charting tools read this
   dataset from anywhere even though runs only happen on Linux.
-- **Machine hash in the name** — `ls datasets/2026-08/*-k7f2qa-*` answers "what did this
+- **Machine hash in the name** — `ls datasets/2026-08/*-k7f2qa9vm3-*` answers "what did this
   box do last month" without opening anything.
 - **Runner in the name** — a criterion and a perf run of the same selection on the same
   machine cannot collide, and listings are informative.

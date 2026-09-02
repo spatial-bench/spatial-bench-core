@@ -18,6 +18,13 @@ use serde::{Deserialize, Serialize};
 /// recognise rather than guessing.
 pub const HARNESS_VERSION: u32 = 1;
 
+/// Fixed seeds, so every subject in a run sees byte-identical data and two
+/// runs are comparable. They are part of the contract, not a per-driver choice
+/// and not a per-run setting: changing them changes every number ever
+/// recorded, so they live here, next to the version that governs them.
+pub const POINT_SEED: u64 = 0x5eed_0000_0000_0301;
+pub const QUERY_SEED: u64 = 0x5eed_0000_0000_0302;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RunSpec {
     pub harness_version: u32,
@@ -70,6 +77,42 @@ impl CaseSpec {
     }
 }
 
+/// Run a driver binary: the spec as JSON on stdin, points as JSON Lines on
+/// stdout, diagnostics inherited on stderr. This is the transport every
+/// single-binary adapter uses, so a failed driver's own words reach the
+/// operator unfiltered.
+pub fn drive(
+    command: &mut std::process::Command,
+    spec: &RunSpec,
+) -> Result<Vec<Point>, HarnessError> {
+    use std::io::Write;
+    let named = format!("{command:?}");
+    command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped());
+    let mut child = command.spawn().map_err(|e| HarnessError::Spawn {
+        binary: named.clone(),
+        err: e.to_string(),
+    })?;
+    let json = serde_json::to_string(spec).map_err(|e| HarnessError::Malformed(e.to_string()))?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| HarnessError::Io("driver stdin was not piped".to_owned()))?
+        .write_all(json.as_bytes())
+        .map_err(|e| HarnessError::Io(e.to_string()))?;
+    let out = child
+        .wait_with_output()
+        .map_err(|e| HarnessError::Io(e.to_string()))?;
+    if !out.status.success() {
+        return Err(HarnessError::DriverExit {
+            binary: named,
+            code: out.status.code(),
+        });
+    }
+    read_points(out.stdout.as_slice())
+}
+
 /// Read a spec from stdin. Drivers call this; it is here so every driver agrees
 /// on framing and version checking.
 pub fn read_spec(reader: impl std::io::Read) -> Result<RunSpec, HarnessError> {
@@ -111,12 +154,79 @@ pub fn read_points(reader: impl std::io::BufRead) -> Result<Vec<Point>, HarnessE
     Ok(out)
 }
 
+/// The driver's self-description mode (§13, `conform`). Invoked with the
+/// `--list` argv flag, a driver writes one JSON object per monomorphisation it
+/// contains — `{"compile_time": [["key", "value"], ...]}` — and exits without
+/// reading stdin. `conform` parses this and asserts set-equality with the
+/// manifest: the declared catalog is safe only while the binaries actually
+/// agree with it.
+pub fn write_registrations(
+    mut writer: impl std::io::Write,
+    registrations: impl Iterator<Item = Vec<(String, String)>>,
+) -> Result<(), HarnessError> {
+    for compile_time in registrations {
+        let line = serde_json::to_string(&RegistrationListing { compile_time })
+            .map_err(|e| HarnessError::Malformed(e.to_string()))?;
+        writeln!(writer, "{line}").map_err(|e| HarnessError::Io(e.to_string()))?;
+    }
+    Ok(())
+}
+
+/// Parse a driver's registration list. Same line discipline as
+/// [`read_points`]: blank lines are skipped; a parse failure is an error,
+/// because a silently dropped registration would read as a conformance match.
+pub fn read_registrations(
+    reader: impl std::io::BufRead,
+) -> Result<Vec<Vec<(String, String)>>, HarnessError> {
+    let mut out = Vec::new();
+    for (index, line) in reader.lines().enumerate() {
+        let line = line.map_err(|e| HarnessError::Io(e.to_string()))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let listing: RegistrationListing =
+            serde_json::from_str(&line).map_err(|e| HarnessError::BadRegistration {
+                line: index + 1,
+                err: e.to_string(),
+            })?;
+        out.push(listing.compile_time);
+    }
+    Ok(out)
+}
+
+/// The wire shape of one `--list` entry. Tuples serialise as `[[k, v], ...]`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RegistrationListing {
+    compile_time: Vec<(String, String)>,
+}
+
 #[derive(Debug)]
 pub enum HarnessError {
-    Version { expected: u32, found: u32 },
+    Version {
+        expected: u32,
+        found: u32,
+    },
     Malformed(String),
-    BadPoint { line: usize, err: String },
+    BadPoint {
+        line: usize,
+        err: String,
+    },
+    /// A registration-list line (the driver's `--list` mode) failed to parse.
+    BadRegistration {
+        line: usize,
+        err: String,
+    },
     Io(String),
+    /// The driver binary could not be spawned at all.
+    Spawn {
+        binary: String,
+        err: String,
+    },
+    /// The driver exited non-zero; its diagnostics are on stderr, inherited.
+    DriverExit {
+        binary: String,
+        code: Option<i32>,
+    },
 }
 
 #[cfg(test)]
@@ -212,5 +322,35 @@ mod tests {
         write_point(&mut buf, &point()).unwrap();
         buf.extend_from_slice(b"\n\n");
         assert_eq!(read_points(buf.as_slice()).unwrap().len(), 1);
+    }
+
+    // ---- the registration listing (§13, conform) --------------------------
+
+    fn reg(k1: &str, v1: &str, k2: &str, v2: &str) -> Vec<(String, String)> {
+        vec![
+            (k1.to_owned(), v1.to_owned()),
+            (k2.to_owned(), v2.to_owned()),
+        ]
+    }
+
+    #[test]
+    fn registrations_round_trip_as_json_lines() {
+        let mut buf = Vec::new();
+        let a = reg("axis", "f64", "kiddo.stem", "eytzinger");
+        let b = reg("axis", "f32", "kiddo.stem", "donnelly");
+        write_registrations(&mut buf, [a.clone(), b.clone()].into_iter()).unwrap();
+        assert_eq!(read_registrations(buf.as_slice()).unwrap(), vec![a, b]);
+    }
+
+    /// Same line discipline as points: blank lines are nothing, a malformed
+    /// line is an error rather than a silently dropped registration — a drop
+    /// would read as a conformance match.
+    #[test]
+    fn registration_listing_rejects_malformed_lines() {
+        assert_eq!(read_registrations(b"\n".as_slice()).unwrap().len(), 0);
+        assert!(matches!(
+            read_registrations(b"{\"nope\": 1}\n".as_slice()),
+            Err(HarnessError::BadRegistration { line: 1, .. })
+        ));
     }
 }

@@ -1,12 +1,15 @@
 //! The `spatial-bench` CLI.
+//!
+//! Argument parsing, rendering, and exit codes. The run pipeline itself —
+//! toolchain resolution, the fingerprint gate, per-subject dispatch, provenance,
+//! the run document — lives in `spatial_bench_core::run`, shared with `conform`
+//! (§13) so the two cannot drift.
 
 use clap::{Parser, Subcommand, ValueEnum};
-use spatial_bench_core::build::{self, BuildRequest, SubjectSource};
 use spatial_bench_core::case::{Budget, Runner};
 use spatial_bench_core::catalog::Catalog;
-use spatial_bench_core::codegen;
-use spatial_bench_core::harness::{CaseSpec, RunSpec};
 use spatial_bench_core::picker::Picker;
+use spatial_bench_core::run;
 use spatial_bench_core::selector::SelectorSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -40,6 +43,17 @@ struct Cli {
     #[arg(long, global = true, env = "SPATIAL_BENCH_SUBJECTS")]
     subjects: Option<PathBuf>,
 
+    /// An engine source checkout to build drivers from, for an installed
+    /// binary (which has no compile-time tree of its own). Dev builds running
+    /// from the source tree find it automatically; this points elsewhere.
+    #[arg(
+        long,
+        value_name = "DIR",
+        global = true,
+        env = "SPATIAL_BENCH_ENGINE_SRC"
+    )]
+    engine_src: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -66,6 +80,10 @@ enum Command {
         /// Print the plan and stop.
         #[arg(long)]
         dry_run: bool,
+        /// Proceed with no machine fingerprint. The run's machine hash is
+        /// degraded by construction and the dataset should reject it.
+        #[arg(long)]
+        allow_unfingerprinted: bool,
     },
     /// List the libraries under test, their pinned refs and case counts.
     Subjects,
@@ -91,6 +109,12 @@ enum Command {
     Conform {
         #[arg(long)]
         subject: Option<String>,
+    },
+    /// Render charts of recorded runs (delegates to spatial-bench-chart).
+    Chart {
+        /// Arguments passed through to spatial-bench-chart.
+        #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
+        args: Vec<String>,
     },
 }
 
@@ -137,21 +161,44 @@ fn main() -> ExitCode {
     }
 }
 
+/// The engine source checkout to build drivers and read subjects from, if one
+/// is reachable.
+///
+/// Order: an explicit `--engine-src`/`SPATIAL_BENCH_ENGINE_SRC` checkout, then
+/// the source tree this binary was compiled from (a dev build). An installed
+/// `cargo install` binary has neither, so it falls back to published crates
+/// for drivers — see [`driver_source`] — and still needs a subjects dir, since
+/// manifests are data rather than code and are not fetched from a registry.
+fn engine_root(cli: &Cli) -> Option<PathBuf> {
+    if let Some(raw) = &cli.engine_src {
+        return std::fs::canonicalize(raw).ok().filter(|p| p.is_dir());
+    }
+    let in_source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    std::fs::canonicalize(&in_source)
+        .ok()
+        .filter(|p| p.is_dir())
+}
+
 fn subjects_dir(cli: &Cli) -> Result<PathBuf, String> {
     if let Some(dir) = &cli.subjects {
         return Ok(dir.clone());
     }
-    let beside_exe = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("subjects")));
-    if let Some(dir) = beside_exe.filter(|d| d.is_dir()) {
-        return Ok(dir);
+    // Day 1.5: the catalog lives in the bencher repo — discovered as the
+    // conventional sibling checkout of the engine unless pointed elsewhere.
+    if let Some(root) = engine_root(cli) {
+        if let Some(parent) = root.parent() {
+            let sibling = parent.join("spatial-bench-benchers").join("subjects");
+            if sibling.is_dir() {
+                return Ok(sibling);
+            }
+        }
     }
-    let in_source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../subjects");
-    if in_source.is_dir() {
-        return Ok(in_source);
-    }
-    Err("cannot find the subjects directory; pass --subjects".to_owned())
+    Err(
+        "cannot find the subjects directory. The catalog lives in the \
+         spatial-bench-benchers repo (day 1.5): pass --subjects <bencher>/subjects \
+         or set SPATIAL_BENCH_SUBJECTS"
+            .to_owned(),
+    )
 }
 
 fn load(cli: &Cli) -> Result<Catalog, String> {
@@ -175,24 +222,136 @@ fn run(cli: &Cli) -> Result<(), String> {
             runner,
             rustc,
             dry_run,
-        }) => execute(
+            allow_unfingerprinted,
+        }) => cmd_run(
             cli,
-            &selection(select)?,
+            select,
             (*runner).into(),
             rustc.as_deref(),
             *dry_run,
+            *allow_unfingerprinted,
         ),
         Some(Command::Machine { explain }) => cmd_machine(*explain),
-        Some(Command::Fingerprint { .. }) => {
-            Err("not implemented: needs root to read memory timings".to_owned())
-        }
+        Some(Command::Fingerprint { write }) => cmd_fingerprint(*write),
         Some(Command::Submit { .. }) => {
             Err("not implemented: the results repository does not exist yet".to_owned())
         }
-        Some(Command::Conform { .. }) => {
-            Err("not implemented: needs each subject built from its pinned ref".to_owned())
+        Some(Command::Conform { subject }) => cmd_conform(cli, subject.as_deref()),
+        Some(Command::Chart { args }) => cmd_chart(args.clone()),
+    }
+}
+
+/// The chart trampoline (cargo external-subcommand pattern): discover
+/// `spatial-bench-chart`, forward args verbatim with inherited stdio, and
+/// propagate exit codes. The parent defines no chart arguments — the child's
+/// CLI can evolve without touching this.
+fn cmd_chart(args: Vec<String>) -> Result<(), String> {
+    let Some(chart_bin) = discover_chart() else {
+        return Err(install_guidance());
+    };
+    let status = std::process::Command::new(&chart_bin)
+        .args(&args)
+        .status()
+        .map_err(|e| format!("could not run {}: {e}", chart_bin.display()))?;
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(2));
+    }
+    Ok(())
+}
+
+/// Where `spatial-bench-chart` comes from: beside this binary, the env
+/// override, or PATH.
+fn discover_chart() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("SPATIAL_BENCH_CHART") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
         }
     }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join("spatial-bench-chart");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|dir| dir.join("spatial-bench-chart"))
+        .find(|p| p.is_file())
+}
+
+/// The soft-fail guidance when the charting tool is absent (day-two TODO).
+fn install_guidance() -> String {
+    let engine_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let crate_dir = engine_root.join("crates/spatial-bench-charting");
+    let install_cmd = if crate_dir.is_dir() {
+        "cargo install --path crates/spatial-bench-charting".to_owned()
+    } else {
+        "cargo install spatial-bench-charting".to_owned()
+    };
+    format!(
+        "the charting tool is not installed.\n\n  spatial-bench chart is provided by the `spatial-bench-charting` \\\n  crate, installed separately so the bench runner stays lean.\\n\n  Install it:\n      {install_cmd}\n\n  Or point SPATIAL_BENCH_CHART at an existing binary."
+    )
+}
+
+/// §13, check 3: build each subject's driver, ask it what it contains, and
+/// assert set-equality with the manifest. Rendering only — the check lives in
+/// `spatial_bench_core::conform`, on the same seams a run uses.
+fn cmd_conform(cli: &Cli, subject: Option<&str>) -> Result<(), String> {
+    let catalog = load(cli)?;
+    let config = spatial_bench_core::conform::ConformConfig {
+        catalog: &catalog,
+        subject,
+        build_root: cli
+            .build_dir
+            .clone()
+            .unwrap_or_else(|| run::data_dir().join("builds")),
+        engine_root: engine_root(cli),
+        subject_paths: &subject_paths(cli)?,
+    };
+    let report = spatial_bench_core::conform::conform(&config)?;
+    for s in &report.subjects {
+        if !s.checked {
+            println!(
+                "{:<20} skipped — {}",
+                s.subject,
+                s.skipped_reason.as_deref().unwrap_or_default()
+            );
+            continue;
+        }
+        if s.is_match() {
+            println!(
+                "{:<20} {} manifest cases, {} driver registrations — match",
+                s.subject, s.manifest_cases, s.driver_registrations
+            );
+        } else {
+            println!(
+                "{:<20} {} manifest cases, {} driver registrations — DRIFT",
+                s.subject, s.manifest_cases, s.driver_registrations
+            );
+            for missing in &s.missing_in_driver {
+                println!("  missing in driver: {}", render_pairs(missing));
+            }
+            for extra in &s.extra_in_driver {
+                println!("  not in manifest:  {}", render_pairs(extra));
+            }
+        }
+    }
+    if report.all_match() {
+        Ok(())
+    } else {
+        Err("conform failed: a driver does not match its manifest".to_owned())
+    }
+}
+
+/// A compile-time key as it would appear in a selector, for drift reports.
+fn render_pairs(pairs: &[(String, String)]) -> String {
+    pairs
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn cmd_list(cli: &Cli, select: &Select, format: Format) -> Result<(), String> {
@@ -261,7 +420,8 @@ fn cmd_subjects(cli: &Cli) -> Result<(), String> {
     names.dedup();
     for name in names {
         let count = catalog.for_subject(name).count();
-        println!("{name:<20} {count:>3} cases");
+        let pin = catalog.pinned_ref(name).unwrap_or_default();
+        println!("{name:<20} {pin:<20} {count:>3} cases");
     }
     Ok(())
 }
@@ -275,189 +435,95 @@ fn cmd_describe(cli: &Cli) -> Result<(), String> {
     Ok(())
 }
 
-fn execute(
+/// The run command: rendering around the core pipeline. The summary before,
+/// the plan or outcome after — everything between lives in
+/// `spatial_bench_core::run`, which `conform` (§13) will share.
+fn cmd_run(
     cli: &Cli,
+    select: &Select,
+    runner: Runner,
+    rustc: Option<&str>,
+    dry_run: bool,
+    allow_unfingerprinted: bool,
+) -> Result<(), String> {
+    let catalog = load(cli)?;
+    let selection = selection(select)?;
+    run_selection(
+        cli,
+        &catalog,
+        &selection,
+        runner,
+        rustc,
+        dry_run,
+        allow_unfingerprinted,
+    )
+}
+
+fn run_selection(
+    cli: &Cli,
+    catalog: &Catalog,
     selection: &SelectorSet,
     runner: Runner,
     rustc: Option<&str>,
     dry_run: bool,
+    allow_unfingerprinted: bool,
 ) -> Result<(), String> {
-    let catalog = load(cli)?;
-    let selection = selection.clone();
-    let points = catalog.points(&selection);
+    let budget = Budget::default();
+    let points = catalog.points(selection);
     if points.is_empty() {
         return Err("that selection matches no data points".to_owned());
     }
-
-    let budget = Budget::default();
-    let groups = codegen::by_subject(&catalog, &selection);
-    let overrides = subject_paths(cli)?;
-
     println!(
         "{} cases, {} points, {} build(s), ~{}",
-        catalog.matching(&selection).len(),
+        catalog.matching(selection).len(),
         points.len(),
-        catalog.build_units(&selection).len(),
-        human(catalog.estimate(&selection, runner, &budget))
+        catalog.build_units(selection).len(),
+        human(catalog.estimate(selection, runner, &budget))
     );
-    report_unsatisfied(&catalog, &selection);
+    report_unsatisfied(catalog, selection);
 
-    let floors: Vec<(String, Option<String>)> = groups
-        .iter()
-        .map(|(subject, _)| (subject.clone(), catalog.min_rustc(subject)))
-        .collect();
-    let toolchain =
-        spatial_bench_core::toolchain::resolve(&floors, rustc).map_err(|e| format!("{e:?}"))?;
-    println!("toolchain: {toolchain}");
+    let config = run::RunConfig {
+        catalog,
+        selection,
+        runner,
+        rustc,
+        allow_unfingerprinted,
+        build_root: cli
+            .build_dir
+            .clone()
+            .unwrap_or_else(|| run::data_dir().join("builds")),
+        engine_root: engine_root(cli),
+        subject_paths: &subject_paths(cli)?,
+    };
 
     if dry_run {
-        for (subject, cases) in &groups {
-            let g = generate_for(&catalog, subject, cases, &toolchain, &overrides)?;
+        let plan = run::plan(&config)?;
+        println!(
+            "toolchain: {}",
+            plan.toolchain
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "none (no rust subjects)".to_owned())
+        );
+        for subject in &plan.subjects {
             println!(
-                "  {subject}: {} combination(s), key {}",
-                g.combinations, g.cache_key
+                "  {}: {} combination(s), key {}",
+                subject.subject, subject.combinations, subject.cache_key
             );
         }
         return Ok(());
     }
 
-    let build_root = cli
-        .build_dir
-        .clone()
-        .unwrap_or_else(|| data_dir().join("builds"));
-    let mut collected: Vec<spatial_bench_core::schema::Point> = Vec::new();
-
-    for (subject, cases) in &groups {
-        let generated = generate_for(&catalog, subject, cases, &toolchain, &overrides)?;
-        let source = overrides
-            .get(subject)
-            .cloned()
-            .map(SubjectSource::Path)
-            .ok_or_else(|| {
-                format!(
-                    "no source for {subject}.\n\
-                     Building from a pinned ref is not implemented yet, so point it at a \
-                     checkout:\n    --subject-path {subject}=/path/to/{}\n\
-                     or set SPATIAL_BENCH_SUBJECT_PATHS={subject}=/path/to/{}",
-                    subject_crate_name(subject),
-                    subject_crate_name(subject),
-                )
-            })?;
-
-        let request = BuildRequest {
-            subject: subject.clone(),
-            driver_crate: cases[0].driver_crate.clone(),
-            driver_crate_path: engine_crate_path(&cases[0].driver_crate)?,
-            subject_crate: subject_crate_name(subject),
-            subject_source: source,
-            features: catalog.features(subject),
-            rustflags: catalog.rustflags(subject),
-            generated,
-        };
-        let dir = build::materialise(&build_root, &request).map_err(|e| e.to_string())?;
-
-        eprintln!("building {subject} in {}", dir.display());
-        let mut cargo = std::process::Command::new("cargo");
-        cargo
-            .args(["build", "--release", "--bin", "driver"])
-            .current_dir(&dir);
-        if let Some(flags) = &request.rustflags {
-            cargo.env("RUSTFLAGS", flags);
-        }
-        let built = cargo
-            .status()
-            .map_err(|e| format!("could not run cargo: {e}"))?;
-        if !built.success() {
-            return Err(format!("building the {subject} driver failed"));
-        }
-
-        let spec = RunSpec {
-            harness_version: spatial_bench_core::harness::HARNESS_VERSION,
-            budget,
-            cases: points
-                .iter()
-                .filter(|(c, _)| &c.subject == subject)
-                .map(|(c, tags)| CaseSpec {
-                    id: c.id.clone(),
-                    tags: tags.clone(),
-                    point_seed: POINT_SEED,
-                    query_seed: QUERY_SEED,
-                })
-                .collect(),
-        };
-        collected.extend(drive(&dir.join("target/release/driver"), &spec)?);
-    }
-
-    let path = write_run(
-        &selection,
-        runner,
-        &toolchain,
-        catalog.rustflags_any(),
-        &overrides,
-        collected,
-    )?;
-    println!("wrote {}", path.display());
+    println!(
+        "toolchain: {}",
+        run::resolve_toolchain(&config)?
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "none (no rust subjects)".to_owned())
+    );
+    let outcome = run::execute(&config)?;
+    println!("wrote {}", outcome.path.display());
     Ok(())
-}
-
-/// Fixed seeds, so every subject in a run sees byte-identical data and two runs
-/// are comparable. They are part of the contract, not a per-driver choice.
-const POINT_SEED: u64 = 0x5eed_0000_0000_0301;
-const QUERY_SEED: u64 = 0x5eed_0000_0000_0302;
-
-fn generate_for(
-    catalog: &Catalog,
-    subject: &str,
-    cases: &[&spatial_bench_core::case::Case],
-    toolchain: &spatial_bench_core::toolchain::Version,
-    overrides: &std::collections::BTreeMap<String, PathBuf>,
-) -> Result<spatial_bench_core::codegen::Generated, String> {
-    let rev = match overrides.get(subject) {
-        // A working tree has no revision. Naming it as such keeps two builds
-        // from sharing a cache key across an edit.
-        Some(path) => format!("worktree:{}", path.display()),
-        None => catalog.pinned_ref(subject).unwrap_or_default(),
-    };
-    let macro_name = cases[0]
-        .driver_macro
-        .clone()
-        .ok_or_else(|| format!("{subject} declares no driver macro"))?;
-    Ok(codegen::generate(
-        &cases[0].driver_crate,
-        &macro_name,
-        subject,
-        cases,
-        &codegen::BuildInputs {
-            toolchain: toolchain.to_string(),
-            rustflags: catalog.rustflags(subject),
-            subject_rev: rev,
-            features: catalog.features(subject),
-        },
-    ))
-}
-
-fn drive(
-    binary: &std::path::Path,
-    spec: &RunSpec,
-) -> Result<Vec<spatial_bench_core::schema::Point>, String> {
-    use std::io::Write;
-    let mut child = std::process::Command::new(binary)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("could not run {}: {e}", binary.display()))?;
-    let json = serde_json::to_string(spec).map_err(|e| e.to_string())?;
-    child
-        .stdin
-        .take()
-        .ok_or("driver stdin was not piped")?
-        .write_all(json.as_bytes())
-        .map_err(|e| format!("writing the spec failed: {e}"))?;
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(format!("the driver exited with {:?}", out.status.code()));
-    }
-    spatial_bench_core::harness::read_points(out.stdout.as_slice()).map_err(|e| format!("{e:?}"))
 }
 
 fn subject_paths(cli: &Cli) -> Result<std::collections::BTreeMap<String, PathBuf>, String> {
@@ -468,144 +534,109 @@ fn subject_paths(cli: &Cli) -> Result<std::collections::BTreeMap<String, PathBuf
             .ok_or_else(|| format!("--subject-path wants NAME=DIR, got `{raw}`"))?;
         let dir =
             std::fs::canonicalize(dir).map_err(|e| format!("--subject-path {name}: {dir}: {e}"))?;
+        // S2: the path is interpolated into a generated Cargo.toml; a quote,
+        // backslash or newline would inject or corrupt keys there.
+        if !spatial_bench_core::build::toml_safe_path(&dir) {
+            return Err(format!(
+                "--subject-path {name}: the directory path contains a quote, \
+                 backslash or newline, which cannot be written safely into a \
+                 generated manifest"
+            ));
+        }
         out.insert(name.to_owned(), dir);
     }
     Ok(out)
 }
 
-/// The engine's own crates, relative to this executable's source tree.
-fn engine_crate_path(name: &str) -> Result<PathBuf, String> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let path = root.join("crates").join(name);
-    std::fs::canonicalize(&path)
-        .map_err(|e| format!("cannot find the {name} crate at {}: {e}", path.display()))
-}
-
-/// kiddo_v6 -> kiddo. The subject name carries a major version for the dataset;
-/// the crate it builds does not.
-fn subject_crate_name(subject: &str) -> String {
-    spatial_bench_core::vocab::namespace_of(subject).to_owned()
-}
-
-fn data_dir() -> PathBuf {
-    std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("spatial-bench")
-}
-
-fn write_run(
-    selection: &SelectorSet,
-    runner: Runner,
-    toolchain: &spatial_bench_core::toolchain::Version,
-    rustflags: Option<String>,
-    overrides: &std::collections::BTreeMap<String, PathBuf>,
-    points: Vec<spatial_bench_core::schema::Point>,
-) -> Result<PathBuf, String> {
-    use spatial_bench_core::machine::Machine;
-    use spatial_bench_core::schema::{result_path, Context, Document, Run, Source, Toolchain};
-
-    let now = timestamp();
-    let machine = Machine::unknown();
-    let run = Run {
-        run_id: format!("{:016x}", blake3_of(&now)),
-        started_at: now.clone(),
-        finished_at: now,
-        runner: match runner {
-            Runner::Perf => "perf",
-            _ => "criterion",
-        }
-        .to_owned(),
-        selectors: selection.to_exprs(),
-        machine_hash: machine.hash(),
-        machine,
-        context: Context {
-            kernel: None,
-            os: None,
-            bench_profile: std::env::var("BENCH_PROFILE").ok(),
-            governor: None,
-            smt: None,
-            boost: None,
-            isolated_cpus: None,
-        },
-        toolchain: Toolchain {
-            rustc: toolchain.to_string(),
-            host: std::env::consts::ARCH.to_owned(),
-            target_cpu: None,
-            rustflags: rustflags.clone(),
-            features: Vec::new(),
-            cargo_profile: "release".to_owned(),
-            opt_level: Some("3".to_owned()),
-        },
-        // A working-tree build has no revision to record. Marked here so the
-        // dataset can reject it rather than treating it as reproducible.
-        source: Source {
-            git_sha: None,
-            git_dirty: !overrides.is_empty(),
-            crate_version: env!("CARGO_PKG_VERSION").to_owned(),
-        },
-    };
-
-    let document = Document {
-        schema_version: spatial_bench_core::schema::SCHEMA_VERSION,
-        run,
-        points,
-    };
-    let path =
-        result_path(&data_dir().join("runs"), &document.run).map_err(|e| format!("{e:?}"))?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(
-        &path,
-        serde_json::to_string_pretty(&document).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(path)
-}
-
-fn blake3_of(s: &str) -> u64 {
-    let bytes = *blake3_hash(s.as_bytes());
-    u64::from_be_bytes(bytes[..8].try_into().unwrap())
-}
-
-fn blake3_hash(bytes: &[u8]) -> Box<[u8; 32]> {
-    Box::new(*spatial_bench_core::machine::hash_bytes(bytes).as_bytes())
-}
-
-/// UTC in the ISO extended form the schema expects.
-fn timestamp() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let days = secs / 86_400;
-    let (h, m, s) = ((secs % 86_400) / 3600, (secs % 3600) / 60, secs % 60);
-    let (y, mo, d) = civil_from_days(days as i64);
-    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
-}
-
-/// Howard Hinnant's days-from-civil, inverted. Avoids a date dependency for the
-/// one timestamp this binary needs.
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
-}
-
 fn cmd_machine(explain: bool) -> Result<(), String> {
-    if explain {
-        return Err("not implemented: probing this host needs root for memory timings".to_owned());
+    use spatial_bench_core::machine::Machine;
+
+    // The unprivileged view: what a run re-probes. When we happen to have
+    // root, the privileged block is included opportunistically so the hash
+    // shown matches what a capture would record.
+    let mut machine = Machine::probe();
+    if spatial_bench_core::machine::is_root() {
+        let _ = machine.add_privileged();
     }
-    Err("not implemented: probing this host needs root for memory timings".to_owned())
+    if explain {
+        println!("{}", machine.explain());
+    } else {
+        println!(
+            "machine {} ({})",
+            machine.hash(),
+            if machine.is_degraded() {
+                "degraded"
+            } else {
+                "complete"
+            }
+        );
+        if machine.is_degraded() {
+            println!(
+                "  some components are unreadable; a full hash needs `{}`",
+                spatial_bench_core::fingerprint::capture_command()
+            );
+        }
+    }
+
+    // When a fingerprint exists, say whether this host still matches it — the
+    // same check every run performs.
+    let path = spatial_bench_core::fingerprint::path();
+    if path.exists() {
+        match spatial_bench_core::fingerprint::Fingerprint::load(&path).and_then(|f| f.validate()) {
+            Ok(recorded) => println!(
+                "fingerprint {}: machine {} matches this host",
+                path.display(),
+                recorded.hash()
+            ),
+            Err(e) => println!("fingerprint {}: {e}", path.display()),
+        }
+    }
+    Ok(())
+}
+
+fn cmd_fingerprint(write: bool) -> Result<(), String> {
+    use spatial_bench_core::fingerprint::Fingerprint;
+
+    let path = spatial_bench_core::fingerprint::path();
+    if write {
+        if let Some(raw) = std::env::var_os("SPATIAL_BENCH_FINGERPRINT") {
+            // S6: sudo often resets the environment, so the path the user set
+            // may not be the path this process writes. Say both out loud.
+            eprintln!(
+                "note: SPATIAL_BENCH_FINGERPRINT is set to {}; under sudo this \
+                 variable may be dropped and the capture writes to {}. \
+                 To keep the env path: sudo --preserve-env=SPATIAL_BENCH_FINGERPRINT …",
+                PathBuf::from(&raw).display(),
+                path.display()
+            );
+        }
+    }
+    if !write {
+        let file = Fingerprint::capture(false).map_err(|e| e.to_string())?;
+        println!("would write {} (machine {})", path.display(), file.machine);
+        println!(
+            "capture the root-only block once per machine with `{}`",
+            spatial_bench_core::fingerprint::capture_command()
+        );
+        return Ok(());
+    }
+
+    let file = Fingerprint::capture(true).map_err(|e| e.to_string())?;
+    file.write(&path).map_err(|e| e.to_string())?;
+    println!(
+        "wrote {} (machine {}, taken {})",
+        path.display(),
+        file.machine,
+        file.taken
+    );
+    if file.privileged.mem_timings.is_none() {
+        println!(
+            "note: memory timings were unreadable (decode-dimms absent or the\
+             eeprom modules are not loaded), so the hash is degraded.\
+             This is normal on many boards."
+        );
+    }
+    Ok(())
 }
 
 fn render(key: &str, value: &spatial_bench_core::tag::TagValue) -> String {
@@ -614,8 +645,29 @@ fn render(key: &str, value: &spatial_bench_core::tag::TagValue) -> String {
 }
 
 fn show(catalog: &Catalog, picker: &Picker, runner: Runner, budget: &Budget) -> Vec<String> {
+    // The runner is the list's first row: it is a choice like any other, and
+    // threads straight into run_selection (D4). Only implemented runners are
+    // offered — a menu item that ends in a refusal is not a choice.
+    let available: Vec<Runner> = catalog
+        .runners_for(&picker.selection())
+        .iter()
+        .filter_map(|r| Runner::parse(r))
+        .filter(|r| r.implemented())
+        .collect();
+    let marked: Vec<String> = available
+        .iter()
+        .map(|r| {
+            if *r == runner {
+                format!("[{r}]")
+            } else {
+                r.to_string()
+            }
+        })
+        .collect();
+    println!("{:>3}. {:<22} {}", 1, "runner", marked.join("  "));
+
     let facets = picker.facets(catalog);
-    let mut keys = Vec::new();
+    let mut keys = vec!["runner".to_owned()];
     for (i, facet) in facets.iter().enumerate() {
         let shown: Vec<String> = facet
             .values
@@ -637,7 +689,7 @@ fn show(catalog: &Catalog, picker: &Picker, runner: Runner, budget: &Budget) -> 
         } else {
             String::new()
         };
-        println!("{:>3}. {:<22} {}{tail}", i + 1, facet.key, shown.join("  "));
+        println!("{:>3}. {:<22} {}{tail}", i + 2, facet.key, shown.join("  "));
         keys.push(facet.key.clone());
     }
 
@@ -673,7 +725,7 @@ fn prompt(text: &str) -> Option<String> {
 fn interactive(cli: &Cli) -> Result<(), String> {
     let catalog = load(cli)?;
     let budget = Budget::default();
-    let runner = Runner::Criterion;
+    let mut runner = Runner::Criterion;
     let mut picker = Picker::new();
 
     loop {
@@ -699,6 +751,43 @@ fn interactive(cli: &Cli) -> Result<(), String> {
                     println!("  no such row: {index}");
                     continue;
                 };
+                if key == "runner" {
+                    // D4: choose from what the selection supports and the
+                    // engine implements; the rest are named so their absence
+                    // is explained rather than silent.
+                    let parsed: Vec<Runner> = catalog
+                        .runners_for(&picker.selection())
+                        .iter()
+                        .filter_map(|r| Runner::parse(r))
+                        .collect();
+                    let offered: Vec<Runner> =
+                        parsed.iter().copied().filter(|r| r.implemented()).collect();
+                    for (i, r) in offered.iter().enumerate() {
+                        let marker = if *r == runner { "[x]" } else { "[ ]" };
+                        println!("{:>3}. {} {}", i + 1, marker, r);
+                    }
+                    let later: Vec<String> = parsed
+                        .iter()
+                        .copied()
+                        .filter(|r| !r.implemented())
+                        .map(|r| r.to_string())
+                        .collect();
+                    if !later.is_empty() {
+                        println!("      (not implemented yet: {})", later.join(", "));
+                    }
+                    let Some(choice) = prompt("  number, blank to keep: ") else {
+                        break;
+                    };
+                    if let Some(r) = choice
+                        .trim()
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|n| offered.get(n - 1))
+                    {
+                        runner = *r;
+                    }
+                    continue;
+                }
                 let facet = picker
                     .facets(&catalog)
                     .into_iter()
@@ -737,7 +826,7 @@ fn interactive(cli: &Cli) -> Result<(), String> {
     match prompt("Run now? [Y/n]: ").as_deref() {
         Some("n") | Some("N") => Ok(()),
         // EOF counts as yes so a piped session still runs; anything else too.
-        _ => execute(cli, &selection, runner, None, false),
+        _ => run_selection(cli, &catalog, &selection, runner, None, false, false),
     }
 }
 

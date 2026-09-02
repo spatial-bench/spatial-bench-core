@@ -3,6 +3,7 @@
 use crate::case::Case;
 use crate::selector::SelectorSet;
 use crate::tag::TagMap;
+use std::path::PathBuf;
 
 pub struct Catalog {
     cases: Vec<Case>,
@@ -14,6 +15,27 @@ pub struct Catalog {
 #[derive(Clone, Debug, Default)]
 pub struct SubjectFacts {
     pub pinned_ref: String,
+    /// `cargo-git` (a Rust crate cargo can fetch itself) or `git` (a repo the
+    /// engine's build recipe handles, e.g. a C++ shim).
+    pub source_kind: String,
+    pub repo: Option<String>,
+    /// Published version of the subject's driver crate, for builds with no
+    /// engine source tree to depend on by path.
+    pub driver_version: Option<String>,
+    /// The exact revision the manifest pins its ref to (S1), when declared.
+    /// The build refuses a ref that resolves to anything else.
+    pub expected_sha: Option<String>,
+    pub source_package: Option<String>,
+    /// Driver assets relative to the manifest's own directory (day 1.5),
+    /// when the manifest declares them.
+    pub driver_path: Option<String>,
+    /// The exec build recipe (day 1.5) — lang, entry, flags. rust-codegen
+    /// subjects carry none.
+    pub build: Option<crate::manifest::Build>,
+    /// The directory this subject's manifest was loaded from — the anchor for
+    /// manifest-relative driver assets (day 1.5: the catalog lives in the
+    /// bencher checkout, and every subject dir is self-contained).
+    pub manifest_dir: PathBuf,
     pub features: Vec<String>,
     pub min_rustc: Option<String>,
     pub rustflags: Option<String>,
@@ -35,6 +57,66 @@ impl Catalog {
     /// The revision a subject is pinned to.
     pub fn pinned_ref(&self, subject: &str) -> Option<String> {
         self.subjects.get(subject).map(|f| f.pinned_ref.clone())
+    }
+
+    /// A subject's declared source: (kind, repo, pin). What a pinned build
+    /// builds from when `--subject-path` does not override it.
+    pub fn source(&self, subject: &str) -> Option<(String, Option<String>, String)> {
+        self.subjects
+            .get(subject)
+            .map(|f| (f.source_kind.clone(), f.repo.clone(), f.pinned_ref.clone()))
+    }
+
+    /// The published driver-crate version a source-less build should depend
+    /// on. Absent means the driver crate has never been published — honest
+    /// refusal beats a guessed version.
+    pub fn driver_version(&self, subject: &str) -> Option<String> {
+        self.subjects
+            .get(subject)
+            .and_then(|f| f.driver_version.clone())
+    }
+
+    /// The manifest-relative driver path, resolved against the manifest's own
+    /// directory — the bencher-repo layout, where driver assets live beside
+    /// the manifest (day 1.5). `None` when the manifest declares none.
+    pub fn manifest_driver_path(&self, subject: &str) -> Option<std::path::PathBuf> {
+        let facts = self.subjects.get(subject)?;
+        let rel = facts.driver_path.as_ref()?;
+        let dir = facts.manifest_dir.join(rel);
+        dir.is_dir().then_some(dir)
+    }
+
+    /// The exact revision the manifest pins its ref to, when declared (S1).
+    pub fn expected_sha(&self, subject: &str) -> Option<String> {
+        self.subjects
+            .get(subject)
+            .and_then(|f| f.expected_sha.clone())
+    }
+
+    /// The directory this subject's manifest was loaded from — the anchor for
+    /// manifest-relative driver assets (day 1.5).
+    pub fn manifest_dir(&self, subject: &str) -> Option<std::path::PathBuf> {
+        self.subjects.get(subject).map(|f| f.manifest_dir.clone())
+    }
+
+    /// The exec build recipe, when the subject declares one (day 1.5).
+    pub fn build(&self, subject: &str) -> Option<crate::manifest::Build> {
+        self.subjects.get(subject).and_then(|f| f.build.clone())
+    }
+
+    /// The subject's full source pin, reconstructed for the exec builders.
+    pub fn source_full(&self, subject: &str) -> Result<crate::manifest::Source, String> {
+        let facts = self
+            .subjects
+            .get(subject)
+            .ok_or_else(|| format!("no subject {subject} in the catalog"))?;
+        Ok(crate::manifest::Source {
+            kind: facts.source_kind.clone(),
+            repo: facts.repo.clone(),
+            package: facts.source_package.clone(),
+            pinned_ref: facts.pinned_ref.clone(),
+            sha: facts.expected_sha.clone(),
+        })
     }
 
     /// Cargo features a subject is built with.
@@ -175,20 +257,47 @@ impl Catalog {
         let mut missing = Vec::new();
         for selector in &sel.selectors {
             for clause in &selector.clauses {
+                // A negation reaching nothing is not a broken request — there
+                // is nothing odd about excluding something that does not
+                // exist. Every other kind of clause is a request that can go
+                // unmet, so every kind is checked.
                 if clause.negated {
                     continue;
                 }
-                let crate::selector::Match::OneOf(wanted) = &clause.matcher else {
-                    continue;
-                };
-                for value in wanted {
-                    let reached = points
-                        .iter()
-                        .any(|(_, tags)| tags.get(&clause.key) == Some(value));
-                    if !reached {
-                        let pow2 =
-                            crate::vocab::lookup(clause.key.as_ref()).is_some_and(|d| d.pow2);
-                        missing.push(format!("{}={}", clause.key, value.to_expr(pow2)));
+                let pow2 = crate::vocab::lookup(clause.key.as_ref()).is_some_and(|d| d.pow2);
+                match &clause.matcher {
+                    crate::selector::Match::OneOf(wanted) => {
+                        for value in wanted {
+                            let reached = points
+                                .iter()
+                                .any(|(_, tags)| tags.get(&clause.key) == Some(value));
+                            if !reached {
+                                missing.push(format!("{}={}", clause.key, value.to_expr(pow2)));
+                            }
+                        }
+                    }
+                    crate::selector::Match::Range { lo, hi } => {
+                        let reached = points.iter().any(|(_, tags)| {
+                            tags.get(&clause.key).is_some_and(|v| v >= lo && v <= hi)
+                        });
+                        if !reached {
+                            missing.push(format!(
+                                "{}={}..{}",
+                                clause.key,
+                                lo.to_expr(pow2),
+                                hi.to_expr(pow2)
+                            ));
+                        }
+                    }
+                    crate::selector::Match::Any => {
+                        // `k=*` asks that the key exist at all; if no point
+                        // carries it, that is an unmet request like any other.
+                        let reached = points
+                            .iter()
+                            .any(|(_, tags)| tags.get(&clause.key).is_some());
+                        if !reached {
+                            missing.push(format!("{}=*", clause.key));
+                        }
                     }
                 }
             }
@@ -292,7 +401,7 @@ mod tests {
     use crate::tags;
 
     fn catalog() -> Catalog {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../subjects");
+        let dir = crate::test_support::subjects_dir();
         crate::catalog_load::load_dir(&dir).unwrap()
     }
 
@@ -354,9 +463,14 @@ mod tests {
         assert_eq!(catalog.build_units(&one).len(), 1);
         assert_eq!(catalog.points(&one).len(), 4, "four values of k, one build");
 
-        // nanoflann resolves its templates in the shim, so it is one build.
+        // nanoflann and pykdtree resolve in their exec builders, so each is
+        // one build.
         let both = catalog.build_units(&SelectorSet::default());
-        assert_eq!(both.len(), 18 + 1, "every kiddo combination plus nanoflann");
+        assert_eq!(
+            both.len(),
+            18 + 1 + 1,
+            "every kiddo combination plus nanoflann plus pykdtree"
+        );
     }
 
     /// Intersection, not union: offering a runner only some cases support would
@@ -387,11 +501,11 @@ mod tests {
             narrow < all,
             "narrow {narrow:?} should be under all {all:?}"
         );
-        // 80 points across both subjects at default params; 18 kiddo cases
-        // offer k=1. Asserted as counts rather than a ratio, since the two do
-        // not divide evenly and a ratio would only obscure that.
+        // 88 points across all three subjects at default params; 18 kiddo
+        // cases offer k=1. Asserted as counts rather than a ratio, since the
+        // two do not divide evenly and a ratio would only obscure that.
         let budget_per_point = std::time::Duration::from_secs(8);
-        assert_eq!(all, budget_per_point * 80);
+        assert_eq!(all, budget_per_point * 88);
         assert_eq!(narrow, budget_per_point * 18);
     }
 
@@ -412,6 +526,38 @@ mod tests {
         let catalog = catalog();
         let sel = SelectorSet::parse_all(["impl=kiddo_v6,k=1|999"]).unwrap();
         assert_eq!(catalog.unsatisfied(&sel), vec!["k=999".to_string()]);
+    }
+
+    /// D3: a range that reaches nothing is reported like an unmet value —
+    /// the whole point of the function, not just its OneOf case. An empty
+    /// expansion reports every unsatisfied clause, because every clause
+    /// reached no point; the range is in the list with the reason visible.
+    #[test]
+    fn unreachable_ranges_are_reported() {
+        let catalog = catalog();
+        let sel = SelectorSet::parse_all(["impl=kiddo_v6,tree_size=2^40..2^41"]).unwrap();
+        assert_eq!(
+            catalog.unsatisfied(&sel),
+            vec![
+                "impl=kiddo_v6".to_string(),
+                "tree_size=2^40..2^41".to_string()
+            ]
+        );
+    }
+
+    /// D3: `key=*` asks that the key exist at all. A key no case carries
+    /// empties the selection, and the existence requirement is in the report
+    /// with everything else it took down.
+    #[test]
+    fn an_existence_requirement_reaching_nothing_is_reported() {
+        let catalog = catalog();
+        // kiddo declares `hugepages` vocabulary but no case sets it, so the
+        // key exists in the vocabulary and in no point.
+        let sel = SelectorSet::parse_all(["impl=kiddo_v6,kiddo.hugepages=*"]).unwrap();
+        assert_eq!(
+            catalog.unsatisfied(&sel),
+            vec!["impl=kiddo_v6".to_string(), "kiddo.hugepages=*".to_string()]
+        );
     }
 
     /// …but a value every case serves is not reported.

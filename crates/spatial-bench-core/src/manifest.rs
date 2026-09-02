@@ -38,22 +38,51 @@ pub struct Manifest {
 }
 
 /// Where the subject comes from. The engine builds it, so it pins it.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Source {
     pub kind: String,
     pub repo: Option<String>,
+    /// The distribution name on PyPI, for `kind = "pypi"` subjects.
+    pub package: Option<String>,
     /// Mandatory: results are only comparable over time if the exact built
     /// revision is recorded. See the design's pinning-and-provenance section.
     pub pinned_ref: String,
+    /// The exact commit the ref must resolve to (S1). Git tags are mutable: a
+    /// moved tag would otherwise compile different code under the same ref
+    /// name, detectable only after the fact in the run header. Declared here,
+    /// the build refuses anything else — "detectable" becomes "refused".
+    /// Optional: without it the build proceeds and the sha is recorded.
+    pub sha: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Driver {
     /// `exec` for a single-phase driver, `rust-codegen` for a two-phase one.
     pub adapter: String,
-    /// Crate in the engine that provides the driver.
-    #[serde(rename = "crate")]
-    pub crate_name: String,
+    /// Crate providing the driver — rust-codegen only: a rust driver is a
+    /// crate; an exec driver is a program beside the manifest. Absent for
+    /// exec subjects.
+    #[serde(rename = "crate", default)]
+    pub crate_name: Option<String>,
+    /// Day 1.5, exec only: the driver's language — `cxx` or `python`. It
+    /// decides how the entry is built and invoked; the harness contract it
+    /// speaks is the same for every language.
+    pub lang: Option<String>,
+    /// Day 1.5, exec only: the driver's entry file, relative to this
+    /// manifest's directory — `shim.cpp` for cxx, `driver.py` for python.
+    pub entry: Option<String>,
+    /// Where the driver's assets live, **relative to this manifest's
+    /// directory** (day 1.5: the catalog moved to the bencher repo, and every
+    /// subject dir is self-contained — `driver = "driver"` for a rust
+    /// codegen crate beside the manifest, `entry` files for exec subjects).
+    /// When set and present, it wins over the engine's own crates and the
+    /// registry fallback.
+    pub path: Option<String>,
+    /// Published version of that crate, used when the binary has no engine
+    /// source tree to depend on by path (an installed `cargo install` build).
+    /// Reviewed here — like the pin — so a driver-crate update is a deliberate
+    /// engine change, and it feeds the build cache key.
+    pub version: Option<String>,
     /// Cargo features the subject is built with.
     #[serde(default)]
     pub features: Vec<String>,
@@ -80,7 +109,7 @@ pub struct Toolchain {
     pub min_rustc: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Build {
     pub kind: String,
     pub shim: Option<PathBuf>,
@@ -91,6 +120,10 @@ pub struct Build {
     /// one specialisation per value and a runtime dispatch.
     #[serde(default)]
     pub compile_time_dims: Vec<u32>,
+    /// Include directories, relative to the library source root — where the
+    /// headers live after the pin is fetched (nanoflann: `include`).
+    #[serde(default)]
+    pub include: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,11 +143,6 @@ pub struct VocabKey {
 pub struct CaseDecl {
     #[serde(default)]
     pub runners: Vec<String>,
-    /// Templated against resolved tags. Single-phase drivers only; a two-phase
-    /// driver receives its parameters through the generated source instead.
-    #[serde(default)]
-    pub command: Vec<String>,
-    pub output: Option<String>,
 
     /// Expands this declaration into one case per combination — the sweep is
     /// data, replacing today's nested for-loops and duplicated bench files.
@@ -181,5 +209,42 @@ pub enum ManifestError {
         subject: String,
         floor: String,
         pinned: String,
+    },
+    /// A `[driver] adapter` this engine does not know. A load error, not a
+    /// run-time surprise: the closed-vocabulary rule applies to the manifest
+    /// itself (design §6), and an unknown adapter string would otherwise be a
+    /// typo measured as a missing driver.
+    UnknownAdapter {
+        subject: String,
+        found: String,
+    },
+    /// A `[source] kind` this engine does not build. Same closed-vocabulary
+    /// rule as the adapter: a typo is a load error, not a run-time surprise.
+    UnknownSourceKind {
+        subject: String,
+        found: String,
+    },
+    /// A case's tag violates the vocabulary — unknown key, or a value the key
+    /// does not allow. The message names the remedy, because "not allowed"
+    /// alone reads like a manifest bug when it is really an engine change.
+    Vocab {
+        subject: String,
+        message: String,
+    },
+    /// A tag value the selector language cannot express, or that would not
+    /// mean itself when parsed back — caught at load, not as a silent hole in
+    /// a chart (design §6's closed-vocabulary rule applied to values, not
+    /// just keys).
+    BadSelectorValue {
+        subject: String,
+        key: String,
+        value: String,
+        why: String,
+    },
+    /// A declared `sha` that is not a full commit id. Anything shorter would
+    /// silently weaken the pin to a prefix match (S1).
+    BadSha {
+        subject: String,
+        found: String,
     },
 }

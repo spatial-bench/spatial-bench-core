@@ -25,6 +25,42 @@ pub enum Runner {
     Mca,
 }
 
+impl Runner {
+    /// The runner a manifest's `runners` list names.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "criterion" => Some(Runner::Criterion),
+            "perf" => Some(Runner::Perf),
+            "asm" => Some(Runner::Asm),
+            "mca" => Some(Runner::Mca),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Runner::Criterion => "criterion",
+            Runner::Perf => "perf",
+            Runner::Asm => "asm",
+            Runner::Mca => "mca",
+        }
+    }
+
+    /// Runners the engine can actually execute. `Asm`/`Mca` emit artefacts
+    /// rather than points (§11) and have no run path; the picker offers only
+    /// implemented runners, because a menu item that ends in a refusal is not
+    /// a choice (D4).
+    pub fn implemented(self) -> bool {
+        matches!(self, Runner::Criterion | Runner::Perf)
+    }
+}
+
+impl std::fmt::Display for Runner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 impl ParamDomain {
     /// Concrete values, when the domain is finite. `None` for open domains,
     /// which the interactive picker cannot offer as a list.
@@ -112,15 +148,16 @@ pub struct Case {
     pub id: String,
     /// The subject that declared it, i.e. which manifest it came from.
     pub subject: String,
-    /// How to execute it: `exec` or `rust-codegen`.
-    pub adapter: String,
-    /// Engine crate providing this subject's driver.
-    pub driver_crate: String,
+    /// How to execute it: [`crate::adapter::Adapter`], typed at manifest load.
+    pub adapter: crate::adapter::Adapter,
+    /// Engine crate providing this subject's driver. rust-codegen only —
+    /// an exec driver is a program beside the manifest, not a crate.
+    pub driver_crate: Option<String>,
     /// Two-phase only: macro a generated `main.rs` invokes.
     pub driver_macro: Option<String>,
-    /// Single-phase only: templated against the resolved tags.
-    pub command: Vec<String>,
-    pub output: Option<String>,
+    /// exec only (day 1.5): the driver's language and entry file.
+    pub driver_lang: Option<String>,
+    pub driver_entry: Option<String>,
     /// Fixed identity tags.
     pub tags: TagMap,
     /// Axes this case can be swept over.
@@ -221,5 +258,23 @@ impl Case {
             Runner::Asm | Runner::Mca => Duration::ZERO,
         };
         per_point * points as u32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// D4: the picker offers runners by name, so the strings and the
+    /// implemented set are contract, not presentation.
+    #[test]
+    fn runner_strings_parse_and_implemented_is_criterion_only() {
+        assert_eq!(Runner::parse("criterion"), Some(Runner::Criterion));
+        assert_eq!(Runner::parse("perf"), Some(Runner::Perf));
+        assert!(Runner::parse("nope").is_none());
+        assert!(Runner::Criterion.implemented());
+        assert!(Runner::Perf.implemented(), "§11's perf runner");
+        assert_eq!(Runner::Perf.to_string(), "perf");
+        assert!(!Runner::Asm.implemented());
     }
 }

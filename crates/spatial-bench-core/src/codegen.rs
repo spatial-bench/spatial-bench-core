@@ -37,6 +37,10 @@ pub struct BuildInputs {
     pub rustflags: Option<String>,
     /// Git revision or version of the subject being built.
     pub subject_rev: String,
+    /// The driver crate the build links: a path ("path:<dir>") or a published
+    /// version ("registry:<version>"). A new published driver crate must
+    /// invalidate cached builds even though the generated source is identical.
+    pub driver_rev: String,
     pub features: Vec<String>,
 }
 
@@ -99,6 +103,8 @@ pub fn generate(
     key_material.push('\u{1}');
     key_material.push_str(&inputs.subject_rev);
     key_material.push('\u{1}');
+    key_material.push_str(&inputs.driver_rev);
+    key_material.push('\u{1}');
     let mut features = inputs.features.clone();
     features.sort();
     key_material.push_str(&features.join(","));
@@ -129,7 +135,7 @@ mod tests {
     use super::*;
 
     fn catalog() -> crate::catalog::Catalog {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../subjects");
+        let dir = crate::test_support::subjects_dir();
         crate::catalog_load::load_dir(&dir).unwrap()
     }
 
@@ -138,6 +144,7 @@ mod tests {
             toolchain: "1.89.0".into(),
             rustflags: Some("-C target-cpu=native".into()),
             subject_rev: "v6.0.0-alpha.4".into(),
+            driver_rev: "path:/engine/crates/spatial-bench-kiddo-v6".into(),
             features: vec!["simd".into()],
         }
     }
@@ -222,6 +229,7 @@ mod tests {
         for mutate in [
             |i: &mut BuildInputs| i.toolchain = "1.90.0".into(),
             |i: &mut BuildInputs| i.subject_rev = "deadbeef".into(),
+            |i: &mut BuildInputs| i.driver_rev = "registry:0.2.0".into(),
             |i: &mut BuildInputs| i.features.push("logging_off".into()),
             |i: &mut BuildInputs| i.rustflags = None,
         ] {
