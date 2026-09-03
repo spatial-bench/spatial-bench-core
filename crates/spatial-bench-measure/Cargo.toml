@@ -1,0 +1,22 @@
+[package]
+name = "spatial-bench-measure"
+description = "Criterion measurement for spatial-bench drivers — the one routine every Rust subject is measured by"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Its own crate rather than part of core, so core stays schema + catalog +
+# selector: a generated driver links core to emit the schema, and criterion
+# (with its dependency tree) only because it measures. The harness contract is
+# unaffected — this crate is what criterion can later be replaced behind.
+
+[dependencies]
+spatial-bench-core = { path = "../spatial-bench-core", version = "0.1.0" }
+criterion = "0.8"
+serde.workspace = true
+serde_json = "1"
+# fd juggling so criterion's stdout reports cannot pollute the JSON-lines
+# harness contract (unix only — runs only happen on Linux).
+libc = "0.2"
