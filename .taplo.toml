@@ -1,0 +1,3 @@
+# Engine output, not source: `target/` holds generated build dirs whose
+# Cargo.tomls materialise() writes itself, so taplo must leave them alone.
+exclude = ["target/**"]
