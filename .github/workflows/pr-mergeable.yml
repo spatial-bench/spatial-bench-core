@@ -1,0 +1,49 @@
+name: PR Mergeable
+
+on:
+  pull_request:
+    branches:
+      - "**"
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: pr-mergeable-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  Common:
+    uses: ./.github/workflows/build-common.yml
+
+  Stable:
+    uses: ./.github/workflows/build-stable.yml
+    secrets: inherit
+
+  pr-mergeable:
+    name: PR Mergeable
+    needs: [Common, Stable]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every required check passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+
+          blocking=$(echo "$NEEDS" | jq -r '
+            to_entries[]
+            | select(.value.result == "failure" or .value.result == "cancelled")
+            | .key
+          ')
+
+          if [ -n "$blocking" ]; then
+            echo "::error::Required checks did not pass: $(echo "$blocking" | tr '\n' ' ')"
+            exit 1
+          fi
+
+          echo "All required checks passed."

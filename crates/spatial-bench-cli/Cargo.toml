@@ -1,0 +1,17 @@
+[package]
+name = "spatial-bench"
+description = "Tag-addressed, library-agnostic spatial-index benchmarking"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "spatial-bench"
+path = "src/main.rs"
+
+[dependencies]
+spatial-bench-core.workspace = true
+clap.workspace = true
+serde_json.workspace = true
