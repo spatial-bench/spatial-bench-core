@@ -19,7 +19,7 @@ jobs:
     name: Lint (Stable)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           show-progress: false
 
@@ -35,7 +35,7 @@ jobs:
     name: Test (Stable)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           show-progress: false
 
@@ -58,7 +58,7 @@ jobs:
     name: Test (Driver + Drift Guard)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           show-progress: false
 
@@ -66,7 +66,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Checkout bencher repo (subjects + driver crates)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: spatial-bench/spatial-bench-benchers
           token: ${{ secrets.BENCHER_PAT }}
