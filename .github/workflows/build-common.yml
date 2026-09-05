@@ -36,6 +36,9 @@ jobs:
         with:
           show-progress: false
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+
       - name: Install `stable` Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
