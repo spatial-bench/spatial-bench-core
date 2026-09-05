@@ -65,7 +65,7 @@ pub fn transmit(image: &Image) -> Result<(), String> {
         let more = if i + 1 < chunks.len() { 1 } else { 0 };
         let controls = if i == 0 {
             format!(
-                "a=T,f=24,s={},v={},c={},r={},q=2,C=1,m={more}",
+                "a=T,f=32,s={},v={},c={},r={},q=2,C=1,m={more}",
                 image.width, image.height, cols, rows
             )
         } else {
