@@ -207,9 +207,9 @@ impl Fingerprint {
             }
         }
         // A RAM upgrade is a hardware change like any other, so the total is
-        // compared too even though it is not a hash component. /proc/meminfo's
-        // MemTotal is usable memory and is stable across boots on the same
-        // hardware, so exact comparison does not false-positive.
+        // compared too even though it is not a hash component. Both sides are
+        // quantised to 64 MiB at the probe, so kernel reservation drift
+        // between boots never trips it — only real memory changes do.
         if let Some(want) = self.unprivileged.mem_total_bytes {
             if host.mem.total_bytes != Some(want) {
                 return differs(
