@@ -879,6 +879,7 @@ dependencies = [
  "clap",
  "serde_json",
  "spatial-bench-core",
+ "toml",
 ]
 
 [[package]]

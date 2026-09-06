@@ -310,8 +310,8 @@ mod tests {
         let mut picker = Picker::new();
         picker.choose("impl", vec![word("kiddo_v6")]);
         let preview = picker.preview(&catalog, Runner::Criterion, &Budget::default());
-        assert_eq!(preview.cases, 72);
-        assert_eq!(preview.points, 72);
+        assert_eq!(preview.cases, 82);
+        assert_eq!(preview.points, 82);
         assert_eq!(
             preview.runners,
             vec!["criterion".to_string(), "perf".to_string()]
@@ -333,8 +333,8 @@ mod tests {
         assert!(p > c, "perf {p:?} should exceed criterion {c:?}");
         assert_eq!(
             c,
-            Duration::from_secs(8) * 88,
-            "88 points at warm-up+measurement (72 kiddo + 8 nanoflann + 8 pykdtree)"
+            Duration::from_secs(8) * 98,
+            "98 points at warm-up+measurement (82 kiddo + 8 nanoflann + 8 pykdtree)"
         );
     }
 

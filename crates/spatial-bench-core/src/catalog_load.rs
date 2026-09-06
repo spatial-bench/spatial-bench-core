@@ -688,10 +688,7 @@ mod tests {
     #[test]
     fn matrix_expands_into_cases() {
         let catalog = catalog();
-        assert_eq!(
-            catalog.for_subject("kiddo_v6").count(),
-            7 * 2 * 4 + 2 * 4 + 2 * 4
-        );
+        assert_eq!(catalog.for_subject("kiddo_v6").count(), 82);
         assert_eq!(catalog.for_subject("nanoflann").count(), 8);
     }
 
@@ -719,10 +716,21 @@ mod tests {
         let all = catalog.points(&SelectorSet::default());
         assert_eq!(
             all.len(),
-            72 + 8 + 8,
+            82 + 8 + 8,
             "one point per case at default params"
         );
-        for (_, tags) in &all {
+        // Only the original exact_nn cases have the default query_count of
+        // 1000; the within/nnw/bnw cases use 100 by design.
+        let exact_nn_count = all
+            .iter()
+            .filter(|(_, tags)| {
+                tags.get("query").map(|v| v.to_string()) == Some("exact_nn".to_owned())
+            })
+            .count();
+        assert_eq!(exact_nn_count, 88, "88 exact_nn points at default params");
+        for (_, tags) in all.iter().filter(|(_, tags)| {
+            tags.get("query").map(|v| v.to_string()) == Some("exact_nn".to_owned())
+        }) {
             assert_eq!(tags.get("tree_size"), Some(&TagValue::Int(1 << 20)));
             assert_eq!(tags.get("query_count"), Some(&TagValue::Int(1000)));
         }

@@ -457,11 +457,17 @@ mod tests {
         // scalars. k is a runtime axis, so its four values add none.
         let all_kiddo = SelectorSet::parse_all(["impl=kiddo_v6"]).unwrap();
         assert_eq!(catalog.build_units(&all_kiddo).len(), 9 * 2);
-        assert_eq!(catalog.points(&all_kiddo).len(), 72);
+        assert_eq!(catalog.points(&all_kiddo).len(), 82);
 
         let one = SelectorSet::parse_all(["impl=kiddo_v6,axis=f64,kiddo.stem=eytzinger"]).unwrap();
         assert_eq!(catalog.build_units(&one).len(), 1);
-        assert_eq!(catalog.points(&one).len(), 4, "four values of k, one build");
+        // 4 exact_nn k-values + 2 within + 2 nnw + 2 bnw (the new corpus cases
+        // also match this selection since they share the same stem and axis)
+        assert_eq!(
+            catalog.points(&one).len(),
+            8,
+            "the corpus cases match the stem/axis selection"
+        );
 
         // nanoflann and pykdtree resolve in their exec builders, so each is
         // one build.
@@ -505,7 +511,7 @@ mod tests {
         // cases offer k=1. Asserted as counts rather than a ratio, since the
         // two do not divide evenly and a ratio would only obscure that.
         let budget_per_point = std::time::Duration::from_secs(8);
-        assert_eq!(all, budget_per_point * 88);
+        assert_eq!(all, budget_per_point * 98);
         assert_eq!(narrow, budget_per_point * 18);
     }
 
@@ -517,7 +523,8 @@ mod tests {
         assert!(keys.contains(&"k".to_string()));
         assert!(keys.contains(&"axis".to_string()));
         assert!(!keys.contains(&"impl".to_string()), "shared by every row");
-        assert!(!keys.contains(&"query".to_string()), "shared by every row");
+        // query is now a varying key (the standard corpus includes multiple query kinds)
+        // assert!(!keys.contains(&"query".to_string()), "shared by every row");
     }
 
     /// A requested value nothing can serve is reported, not silently dropped.
