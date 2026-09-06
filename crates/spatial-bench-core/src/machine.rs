@@ -422,21 +422,21 @@ fn count_processors(cpuinfo: &str) -> u32 {
 
 /// `/proc/meminfo`'s MemTotal is usable memory: the kernel's reservations
 /// shift it by a few megabytes between boots on identical hardware, so the
-/// raw figure is quantised to 64 MiB before anything stores or compares it.
-/// A real RAM upgrade moves the value by a full quantum; a reboot must not
+/// raw figure is round downd to 64 MiB before anything stores or compares it.
+/// A real RAM upgrade moves the value by a full 64 MiB step; a reboot must not
 /// move it at all. (The gate once claimed exact comparison could not
 /// false-positive; a 3.8 MB post-reboot drift on a Ryzen 5 8500GE said
 /// otherwise and refused every run on that machine.)
-pub const MEM_TOTAL_QUANTUM: u64 = 64 << 20; // 64 MiB
+pub const MEM_TOTAL_ROUNDING: u64 = 64 << 20; // 64 MiB
 
 fn parse_meminfo_total(meminfo: &str) -> Option<u64> {
-    const QUANTUM: u64 = MEM_TOTAL_QUANTUM;
+    const ROUND: u64 = MEM_TOTAL_ROUNDING;
     meminfo
         .lines()
         .find_map(|l| l.strip_prefix("MemTotal:"))
         .and_then(|rest| rest.split_whitespace().next())
         .and_then(|kb| kb.parse::<u64>().ok())
-        .map(|kb| kb * 1024 / QUANTUM * QUANTUM)
+        .map(|kb| kb * 1024 / ROUND * ROUND)
 }
 
 /// Memory speed and part numbers from `dmidecode -t 17`.
@@ -669,8 +669,9 @@ mod tests {
 
     #[test]
     fn meminfo_parses_kib_to_bytes() {
-        // Quantised to 64 MiB: 32732160 kB raw = 33487323136 B exact, which
-        // rounds down to 496 quanta. A value exactly on a quantum is exact.
+        // Round downd to 64 MiB: 32732160 kB raw = 33487323136 B exact, which
+        // rounds down to 496 steps of 64 MiB. A value already on a 64 MiB
+        // multiple is exact.
         assert_eq!(
             parse_meminfo_total("MemTotal:       32732160 kB\n"),
             Some(499 * (64 << 20))

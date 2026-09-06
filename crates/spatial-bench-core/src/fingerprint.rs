@@ -208,15 +208,15 @@ impl Fingerprint {
         }
         // A RAM upgrade is a hardware change like any other, so the total is
         // compared too even though it is not a hash component. Both sides are
-        // quantised to 64 MiB at the probe, so kernel reservation drift
+        // round downd to 64 MiB at the probe, so kernel reservation drift
         // between boots never trips it — only real memory changes do.
         if let Some(want) = self.unprivileged.mem_total_bytes {
-            // A captured value predating the 64 MiB quantisation, or the
-            // quantised value itself, both sit within one quantum of any
+            // A captured value recorded before the 64 MiB rounding existed, or the
+            // round downd value itself, both sit within one 64 MiB step of any
             // honest re-probe on the same hardware. Kernel reservation
             // drift is megabytes; RAM changes are gigabytes.
             let host_total = host.mem.total_bytes.unwrap_or(0);
-            if host_total.abs_diff(want) >= crate::machine::MEM_TOTAL_QUANTUM {
+            if host_total.abs_diff(want) >= crate::machine::MEM_TOTAL_ROUNDING {
                 return differs(
                     "mem_total_bytes",
                     &want.to_string(),
