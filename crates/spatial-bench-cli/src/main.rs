@@ -84,6 +84,9 @@ enum Command {
         /// degraded by construction and the dataset should reject it.
         #[arg(long)]
         allow_unfingerprinted: bool,
+        /// The random seed for the dataset generator.
+        #[arg(long, value_name = "N", default_value_t = 42)]
+        random_seed: u64,
     },
     /// List the libraries under test, their pinned refs and case counts.
     Subjects,
@@ -223,6 +226,7 @@ fn run(cli: &Cli) -> Result<(), String> {
             rustc,
             dry_run,
             allow_unfingerprinted,
+            random_seed,
         }) => cmd_run(
             cli,
             select,
@@ -230,6 +234,7 @@ fn run(cli: &Cli) -> Result<(), String> {
             rustc.as_deref(),
             *dry_run,
             *allow_unfingerprinted,
+            *random_seed,
         ),
         Some(Command::Machine { explain }) => cmd_machine(*explain),
         Some(Command::Fingerprint { write }) => cmd_fingerprint(*write),
@@ -445,6 +450,7 @@ fn cmd_run(
     rustc: Option<&str>,
     dry_run: bool,
     allow_unfingerprinted: bool,
+    random_seed: u64,
 ) -> Result<(), String> {
     let catalog = load(cli)?;
     let selection = selection(select)?;
@@ -456,9 +462,11 @@ fn cmd_run(
         rustc,
         dry_run,
         allow_unfingerprinted,
+        random_seed,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_selection(
     cli: &Cli,
     catalog: &Catalog,
@@ -467,6 +475,7 @@ fn run_selection(
     rustc: Option<&str>,
     dry_run: bool,
     allow_unfingerprinted: bool,
+    random_seed: u64,
 ) -> Result<(), String> {
     let budget = Budget::default();
     let points = catalog.points(selection);
@@ -488,6 +497,7 @@ fn run_selection(
         runner,
         rustc,
         allow_unfingerprinted,
+        random_seed,
         build_root: cli
             .build_dir
             .clone()
@@ -826,7 +836,7 @@ fn interactive(cli: &Cli) -> Result<(), String> {
     match prompt("Run now? [Y/n]: ").as_deref() {
         Some("n") | Some("N") => Ok(()),
         // EOF counts as yes so a piped session still runs; anything else too.
-        _ => run_selection(cli, &catalog, &selection, runner, None, false, false),
+        _ => run_selection(cli, &catalog, &selection, runner, None, false, false, 42),
     }
 }
 

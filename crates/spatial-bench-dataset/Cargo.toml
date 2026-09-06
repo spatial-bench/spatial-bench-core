@@ -1,0 +1,15 @@
+[package]
+name = "spatial-bench-dataset"
+description = "Dataset generator for spatial-bench drivers — streams binary points to stdout"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "spatial-bench-dataset"
+path = "src/main.rs"
+
+[dependencies]
+# The ChaCha8 stream: byte-identical to the previous per-language generators.

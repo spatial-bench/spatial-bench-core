@@ -135,6 +135,13 @@ pub const IDENTITY: &[KeyDef] = &[
         doc: "distance metric",
     },
     KeyDef {
+        key: "dataset",
+        kind: Kind::Identity,
+        allowed: Some(&["uniform", "gaussian"]),
+        pow2: false,
+        doc: "the distribution the construction and query points are drawn from",
+    },
+    KeyDef {
         key: "isa",
         kind: Kind::Identity,
         allowed: Some(&["scalar", "avx2", "avx512", "neon"]),

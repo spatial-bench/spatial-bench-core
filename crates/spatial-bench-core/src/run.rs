@@ -34,6 +34,8 @@ pub struct RunConfig<'a> {
     /// Proceed with no fingerprint file; the machine hash is degraded by
     /// construction and the dataset should reject the run (§9).
     pub allow_unfingerprinted: bool,
+    /// The random seed for the dataset generator.
+    pub random_seed: u64,
     /// Where generated packages are built. Engine output, never sources.
     pub build_root: PathBuf,
     /// An engine source checkout for driver path deps, if one is reachable.
@@ -147,6 +149,7 @@ pub fn execute(config: &RunConfig<'_>) -> Result<RunOutcome, String> {
         }
     }
 
+    let dataset_generator_path = resolve_dataset_generator();
     let mut collected: Vec<crate::schema::Point> = Vec::new();
     // §4: every run records what it actually built, per subject.
     let mut subjects: BTreeMap<String, SubjectProvenance> = Default::default();
@@ -179,8 +182,12 @@ pub fn execute(config: &RunConfig<'_>) -> Result<RunOutcome, String> {
                         .map(|(c, tags)| CaseSpec {
                             id: c.id.clone(),
                             tags: tags.clone(),
-                            point_seed: harness::POINT_SEED,
-                            query_seed: harness::QUERY_SEED,
+                            dataset_generator: dataset_generator_path.clone(),
+                            dataset: tags
+                                .get("dataset")
+                                .map(ToString::to_string)
+                                .unwrap_or_default(),
+                            random_seed: config.random_seed,
                         })
                         .collect(),
                 };
@@ -211,8 +218,12 @@ pub fn execute(config: &RunConfig<'_>) -> Result<RunOutcome, String> {
                         cases: vec![CaseSpec {
                             id: c.id.clone(),
                             tags: tags.clone(),
-                            point_seed: harness::POINT_SEED,
-                            query_seed: harness::QUERY_SEED,
+                            dataset_generator: dataset_generator_path.clone(),
+                            dataset: tags
+                                .get("dataset")
+                                .map(ToString::to_string)
+                                .unwrap_or_default(),
+                            random_seed: config.random_seed,
                         }],
                     };
                     out.push(
@@ -296,6 +307,20 @@ pub fn execute(config: &RunConfig<'_>) -> Result<RunOutcome, String> {
 /// comparison runs against what cargo actually locked, so a moved tag is
 /// refused at build time, naming both revisions, instead of being detectable
 /// only by auditing run headers afterwards.
+/// The dataset generator binary path: beside the CLI binary, or from the
+/// workspace (dev builds). Same discovery pattern as the charting trampoline.
+fn resolve_dataset_generator() -> String {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join("spatial-bench-dataset");
+            if candidate.is_file() {
+                return candidate.display().to_string();
+            }
+        }
+    }
+    "spatial-bench-dataset".to_owned()
+}
+
 fn enforce_sha(subject: &str, expected: &str, resolved: Option<&str>) -> Result<(), String> {
     match resolved {
         Some(sha) if sha == expected => Ok(()),
@@ -532,6 +557,7 @@ mod tests {
             runner,
             rustc: None,
             allow_unfingerprinted: true,
+            random_seed: 42,
             build_root: std::env::temp_dir().join(format!("sb-run-{}", std::process::id())),
             engine_root: None,
             subject_paths: paths,

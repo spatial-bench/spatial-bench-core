@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 /// Bumped when the contract changes shape. A driver refuses a spec it does not
 /// recognise rather than guessing.
-pub const HARNESS_VERSION: u32 = 1;
+pub const HARNESS_VERSION: u32 = 2;
 
 /// Fixed seeds, so every subject in a run sees byte-identical data and two
 /// runs are comparable. They are part of the contract, not a per-driver choice
@@ -39,10 +39,14 @@ pub struct RunSpec {
 pub struct CaseSpec {
     pub id: String,
     pub tags: TagMap,
-    /// Seeds are supplied rather than chosen by the driver, so two subjects
-    /// measured in the same run see byte-identical data.
-    pub point_seed: u64,
-    pub query_seed: u64,
+    /// The dataset generator binary path. The driver spawns it to obtain
+    /// construction and query points (day-1.5 dataset work: the binary
+    /// streams a binary header + raw points to stdout).
+    pub dataset_generator: String,
+    /// The dataset kind, passed to the generator.
+    pub dataset: String,
+    /// The random seed, passed to the generator.
+    pub random_seed: u64,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -245,8 +249,9 @@ mod tests {
                     impl_: "kiddo_v6", query: "exact_nn", k: 1, dims: 3, axis: "f64",
                     tree_size: 1_048_576usize, query_count: 1000usize,
                 },
-                point_seed: 0x5eed_0301,
-                query_seed: 0x5eed_0302,
+                dataset_generator: String::new(),
+                dataset: "uniform".into(),
+                random_seed: 42,
             }],
         }
     }
@@ -258,7 +263,7 @@ mod tests {
         assert_eq!(back.cases[0].id, "kiddo_v6:0");
         assert_eq!(back.cases[0].int("tree_size"), Some(1 << 20));
         assert_eq!(back.cases[0].word("query").as_deref(), Some("exact_nn"));
-        assert_eq!(back.cases[0].point_seed, 0x5eed_0301);
+        assert_eq!(back.cases[0].random_seed, 42);
     }
 
     /// A driver built against an older contract must refuse, not guess.
@@ -270,7 +275,7 @@ mod tests {
         assert!(matches!(
             read_spec(json.as_bytes()),
             Err(HarnessError::Version {
-                expected: 1,
+                expected: HARNESS_VERSION,
                 found: 99
             })
         ));
