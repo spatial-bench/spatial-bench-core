@@ -366,8 +366,9 @@ mod tests {
         let spec = CaseSpec {
             id: "kiddo_v6:0".into(),
             tags: tags! { impl_: "kiddo_v6", k: 1usize, query_count: 1000usize },
-            point_seed: 1,
-            query_seed: 2,
+            random_seed: 42,
+            dataset_generator: String::new(),
+            dataset: "uniform".into(),
         };
         let budget = Budget {
             warm_up_ms: 10,
@@ -405,8 +406,9 @@ mod tests {
         let spec = CaseSpec {
             id: "kiddo_v6:0".into(),
             tags: tags! { impl_: "kiddo_v6" },
-            point_seed: 1,
-            query_seed: 2,
+            random_seed: 42,
+            dataset_generator: String::new(),
+            dataset: "uniform".into(),
         };
         let too_few_samples = Budget {
             warm_up_ms: 10,

@@ -5,8 +5,8 @@
 # the engine to also build every library under test.
 members = [
   "crates/spatial-bench-core",
-  "crates/spatial-bench-measure",
   "crates/spatial-bench-charting",
+  "crates/spatial-bench-dataset",
   "crates/spatial-bench-cli",
 ]
 exclude = ["crates/spatial-bench-kiddo-v6"]
@@ -21,7 +21,6 @@ repository = "https://github.com/sdd/spatial-bench"
 
 [workspace.dependencies]
 spatial-bench-core = { path = "crates/spatial-bench-core", version = "0.1.0" }
-spatial-bench-measure = { path = "crates/spatial-bench-measure", version = "0.1.0" }
 blake3 = "1"
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
