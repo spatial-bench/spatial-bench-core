@@ -508,11 +508,11 @@ mod tests {
             narrow < all,
             "narrow {narrow:?} should be under all {all:?}"
         );
-        // 125 points across all three subjects at default params; 24 kiddo
+        // 129 points across all three subjects at default params; 24 kiddo
         // cases offer k=1 (tuned, default single-query, and default batch). Asserted as counts rather than a ratio, since the
         // two do not divide evenly and a ratio would only obscure that.
         let budget_per_point = std::time::Duration::from_secs(8);
-        assert_eq!(all, budget_per_point * 125);
+        assert_eq!(all, budget_per_point * 129);
         assert_eq!(narrow, budget_per_point * 24);
     }
 
