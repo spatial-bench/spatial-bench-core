@@ -345,6 +345,37 @@ fn enforce_sha(subject: &str, expected: &str, resolved: Option<&str>) -> Result<
 /// refused by `adapter::prepare` with the honest adapter error, not by a
 /// driver-source lookup suggesting `--engine-src` fixes an adapter that does
 /// not exist.
+/// The selected cases' `isa` tag is a compiler input: it decides the build
+/// flags outright (replacing the manifest's own target flags, which exist
+/// only for subjects that do not declare an ISA). A selection spanning
+/// several ISA values would need differently compiled binaries in one run,
+/// so it is refused rather than silently measuring one of them.
+fn isa_resolved_rustflags(config: &RunConfig<'_>, subject: &str) -> Result<Option<String>, String> {
+    let isas: std::collections::BTreeSet<String> = config
+        .catalog
+        .matching(config.selection)
+        .iter()
+        .filter(|c| c.subject == subject)
+        .filter_map(|c| c.tags.get("isa").map(ToString::to_string))
+        .collect();
+    match isas.len() {
+        0 => Ok(config.catalog.rustflags(subject)),
+        1 => {
+            let isa = isas.iter().next().unwrap();
+            match crate::build::isa_rustflags(isa) {
+                Some(flags) => Ok(Some(flags.to_owned())),
+                None => Err(format!(
+                    "{subject}: unknown isa `{isa}` — the value is not in the vocabulary"
+                )),
+            }
+        }
+        _ => Err(format!(
+            "{subject}: the selection spans several isa values {isas:?}; ISA \
+             drives the compiler, so narrow the selection to one"
+        )),
+    }
+}
+
 fn subject_request(
     config: &RunConfig<'_>,
     subject: &str,
@@ -413,7 +444,7 @@ fn subject_request(
                 subject_source,
                 subject_rev,
                 features: config.catalog.features(subject),
-                rustflags: config.catalog.rustflags(subject),
+                rustflags: isa_resolved_rustflags(config, subject)?,
             })
         }
         _ => None,
@@ -580,15 +611,16 @@ mod tests {
     #[test]
     fn plan_reports_combinations_per_subject() {
         let catalog = catalog();
-        let selection = SelectorSet::parse_all(["impl=kiddo_v6,kiddo.stem=eytzinger"]).unwrap();
+        let selection =
+            SelectorSet::parse_all(["impl=kiddo_v6,kiddo.stem=eytzinger,isa=avx512"]).unwrap();
         let paths = BTreeMap::new();
         let plan = plan(&config(&catalog, &selection, Runner::Criterion, &paths)).unwrap();
         assert_eq!(plan.toolchain, Some(Version(1, 89, 0)));
         assert_eq!(plan.subjects.len(), 1);
         let kiddo = &plan.subjects[0];
         assert_eq!(kiddo.subject, "kiddo_v6");
-        // Two scalars, one stem, two leaves: four monomorphisations.
-        assert_eq!(kiddo.combinations, 4);
+        // Two scalars over one stem and one leaf: two monomorphisations.
+        assert_eq!(kiddo.combinations, 2);
     }
 
     /// exec subjects plan through their language builder — the plan
@@ -612,7 +644,7 @@ mod tests {
     #[test]
     fn a_perf_run_is_planned_like_any_other() {
         let catalog = catalog();
-        let selection = SelectorSet::parse_all(["impl=kiddo_v6,k=1"]).unwrap();
+        let selection = SelectorSet::parse_all(["impl=kiddo_v6,k=1,isa=avx512"]).unwrap();
         let paths = BTreeMap::new();
         let plan = plan(&config(&catalog, &selection, Runner::Perf, &paths)).unwrap();
         assert_eq!(plan.subjects.len(), 1);

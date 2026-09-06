@@ -146,9 +146,9 @@ pub const IDENTITY: &[KeyDef] = &[
     KeyDef {
         key: "isa",
         kind: Kind::Identity,
-        allowed: Some(&["scalar", "avx2", "avx512", "neon"]),
+        allowed: Some(&["native", "scalar_only", "avx2", "avx512", "neon", "sve"]),
         pow2: false,
-        doc: "instruction set actually exercised",
+        doc: "the instruction set the build targets — a compiler input, not a \n             descriptor. native (the default) is the best available on the \n             runner, i.e. target-cpu=native; a specific value pins the ISA \n             (avx2 → x86-64-v3, avx512 → x86-64-v4, scalar_only → baseline, \n             sve/neon → target-feature). A run whose explicit-SIMD \n             requirements the ISA cannot meet fails to build or runs in a \n             fallback mode — both are honest outcomes. The set expands with \n             AVX10, RISC-V, and friends",
     },
     KeyDef {
         key: "parallelism",

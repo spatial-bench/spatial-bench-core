@@ -759,7 +759,7 @@ mod tests {
         let all = catalog.points(&SelectorSet::default());
         assert_eq!(
             all.len(),
-            109 + 8 + 8,
+            109 + 8 + 12,
             "one point per case at default params"
         );
         // Only the original exact_nn cases have the default query_count of
@@ -770,7 +770,7 @@ mod tests {
                 tags.get("query").map(|v| v.to_string()) == Some("exact_nn".to_owned())
             })
             .count();
-        assert_eq!(exact_nn_count, 104, "104 exact_nn points at default params");
+        assert_eq!(exact_nn_count, 108, "108 exact_nn points at default params");
         for (_, tags) in all.iter().filter(|(_, tags)| {
             tags.get("query").map(|v| v.to_string()) == Some("exact_nn".to_owned())
         }) {

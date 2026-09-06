@@ -203,6 +203,21 @@ pub fn built_subject(lock: &Path, crate_name: &str) -> Option<(String, Option<St
     None
 }
 
+/// The ISA a selection pins is a compiler input: these are the rustc flags
+/// each vocabulary value maps to. A value the host cannot honour fails the
+/// build — an honest outcome, per the ISA vocabulary's contract.
+pub fn isa_rustflags(isa: &str) -> Option<&'static str> {
+    match isa {
+        "native" => Some("-C target-cpu=native"),
+        "avx2" => Some("-C target-cpu=x86-64-v3"),
+        "avx512" => Some("-C target-cpu=x86-64-v4"),
+        "sve" => Some("-C target-feature=+sve"),
+        "neon" => Some("-C target-feature=+neon"),
+        "scalar_only" => Some(""),
+        _ => None,
+    }
+}
+
 /// Compile a materialised driver package with the run's one toolchain,
 /// honouring the subject's RUSTFLAGS (§4). Uses cargo's exit status and stderr
 /// verbatim, so the operator sees the real compile error, not a paraphrase.
