@@ -211,7 +211,12 @@ impl Fingerprint {
         // quantised to 64 MiB at the probe, so kernel reservation drift
         // between boots never trips it — only real memory changes do.
         if let Some(want) = self.unprivileged.mem_total_bytes {
-            if host.mem.total_bytes != Some(want) {
+            // A captured value predating the 64 MiB quantisation, or the
+            // quantised value itself, both sit within one quantum of any
+            // honest re-probe on the same hardware. Kernel reservation
+            // drift is megabytes; RAM changes are gigabytes.
+            let host_total = host.mem.total_bytes.unwrap_or(0);
+            if host_total.abs_diff(want) >= crate::machine::MEM_TOTAL_QUANTUM {
                 return differs(
                     "mem_total_bytes",
                     &want.to_string(),

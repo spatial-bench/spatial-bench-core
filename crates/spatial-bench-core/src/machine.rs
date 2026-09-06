@@ -427,8 +427,10 @@ fn count_processors(cpuinfo: &str) -> u32 {
 /// move it at all. (The gate once claimed exact comparison could not
 /// false-positive; a 3.8 MB post-reboot drift on a Ryzen 5 8500GE said
 /// otherwise and refused every run on that machine.)
+pub const MEM_TOTAL_QUANTUM: u64 = 64 << 20; // 64 MiB
+
 fn parse_meminfo_total(meminfo: &str) -> Option<u64> {
-    const QUANTUM: u64 = 64 << 20; // 64 MiB
+    const QUANTUM: u64 = MEM_TOTAL_QUANTUM;
     meminfo
         .lines()
         .find_map(|l| l.strip_prefix("MemTotal:"))
