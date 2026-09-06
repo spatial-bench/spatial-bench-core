@@ -242,8 +242,36 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
     // Sorted so generated source is byte-identical run to run.
     compile_time_keys.sort();
 
+    // Parse the declared defaults once: a typo'd value is a load error, not a
+    // silent stream of "tuned" labels.
+    let defaults: Vec<(String, crate::tag::TagValue)> = manifest
+        .defaults
+        .iter()
+        .map(|(key, default)| Ok((key.clone(), tag_value(default, key, &manifest.name)?)))
+        .collect::<Result<_, _>>()?;
+
     let mut cases = Vec::new();
+    // The runner owns the defaults_or_tuned label: a manifest cannot declare
+    // it, only the defaults the label is computed from.
+    if manifest.defaults.contains_key("defaults_or_tuned") {
+        return Err(ManifestError::UnknownKey {
+            subject: manifest.name.clone(),
+            key: "defaults.defaults_or_tuned — the label is computed, not declared".to_owned(),
+        });
+    }
     for decl in &manifest.cases {
+        if decl.tags.contains_key("defaults_or_tuned") {
+            return Err(ManifestError::UnknownKey {
+                subject: manifest.name.clone(),
+                key: "defaults_or_tuned: the runner labels each case from the manifest's [defaults]; declare [defaults] instead".to_owned(),
+            });
+        }
+        if decl.matrix.contains_key("defaults_or_tuned") {
+            return Err(ManifestError::UnknownKey {
+                subject: manifest.name.clone(),
+                key: "defaults_or_tuned: the runner labels each case from the manifest's [defaults]; declare [defaults] instead".to_owned(),
+            });
+        }
         let base = toml_tags(&decl.tags, &manifest.name)?;
         if let Some(found) = base.get("impl") {
             // A subject must not declare cases attributed to another, or
@@ -258,6 +286,21 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
         for combo in expand_matrix(&decl.matrix, &manifest.name)? {
             let mut tags = base.clone();
             tags.extend(combo);
+            // defaults_or_tuned is computed here, once, at load: default when
+            // every declared default matches this case's tags, tuned when any
+            // differs. It flows onto points like any identity tag.
+            let label = if defaults
+                .iter()
+                .all(|(key, default)| tags.get(key.as_str()) == Some(default))
+            {
+                "default"
+            } else {
+                "tuned"
+            };
+            tags.insert(
+                TagKey::Borrowed("defaults_or_tuned"),
+                TagValue::Word(label.to_owned()),
+            );
             cases.push(Case {
                 id: format!("{}:{}", manifest.name, cases.len()),
                 tags,
@@ -688,7 +731,7 @@ mod tests {
     #[test]
     fn matrix_expands_into_cases() {
         let catalog = catalog();
-        assert_eq!(catalog.for_subject("kiddo_v6").count(), 82);
+        assert_eq!(catalog.for_subject("kiddo_v6").count(), 109);
         assert_eq!(catalog.for_subject("nanoflann").count(), 8);
     }
 
@@ -716,7 +759,7 @@ mod tests {
         let all = catalog.points(&SelectorSet::default());
         assert_eq!(
             all.len(),
-            82 + 8 + 8,
+            109 + 8 + 8,
             "one point per case at default params"
         );
         // Only the original exact_nn cases have the default query_count of
@@ -727,7 +770,7 @@ mod tests {
                 tags.get("query").map(|v| v.to_string()) == Some("exact_nn".to_owned())
             })
             .count();
-        assert_eq!(exact_nn_count, 88, "88 exact_nn points at default params");
+        assert_eq!(exact_nn_count, 104, "104 exact_nn points at default params");
         for (_, tags) in all.iter().filter(|(_, tags)| {
             tags.get("query").map(|v| v.to_string()) == Some("exact_nn".to_owned())
         }) {
@@ -745,7 +788,7 @@ mod tests {
         ])
         .unwrap();
         let points = catalog.points(&sel);
-        assert_eq!(points.len(), 2 * 3, "2 scalars x 3 sizes at k=1");
+        assert_eq!(points.len(), 8 * 3, "8 monomorphisations x 3 sizes at k=1");
         // 2^26 must be reachable: the declared range is what is worth sweeping,
         // not a capability limit. What actually fits is a memory question the
         // engine answers per machine.
@@ -766,7 +809,11 @@ mod tests {
         ])
         .unwrap();
         let points = catalog.points(&sel);
-        assert_eq!(points.len(), 4, "2^16, 2^17, 2^18, 2^19");
+        assert_eq!(
+            points.len(),
+            4 * 4,
+            "four cases over 2^16, 2^17, 2^18, 2^19"
+        );
     }
 
     /// A cross-subject selection is the point of the shared domain core: both

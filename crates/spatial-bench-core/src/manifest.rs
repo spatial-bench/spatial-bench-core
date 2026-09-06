@@ -33,6 +33,13 @@ pub struct Manifest {
     /// Extension keys, namespaced under the subject on use (`kiddo.stem`).
     #[serde(default)]
     pub vocab: BTreeMap<String, VocabKey>,
+    /// The out-of-the-box configuration of the pinned library version: the
+    /// tag values its own quick-start entry point produces. The runner
+    /// labels each case `defaults_or_tuned = default` when every key here
+    /// matches the case's tags, `tuned` when any differs. The label is
+    /// computed, never declared: a manifest that sets it fails to load.
+    #[serde(default)]
+    pub defaults: BTreeMap<String, toml::Value>,
     #[serde(default, rename = "case")]
     pub cases: Vec<CaseDecl>,
 }

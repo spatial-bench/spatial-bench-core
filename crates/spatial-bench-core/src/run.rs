@@ -587,8 +587,8 @@ mod tests {
         assert_eq!(plan.subjects.len(), 1);
         let kiddo = &plan.subjects[0];
         assert_eq!(kiddo.subject, "kiddo_v6");
-        // Two scalars, one stem, one leaf: two monomorphisations.
-        assert_eq!(kiddo.combinations, 2);
+        // Two scalars, one stem, two leaves: four monomorphisations.
+        assert_eq!(kiddo.combinations, 4);
     }
 
     /// exec subjects plan through their language builder — the plan

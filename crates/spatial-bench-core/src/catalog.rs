@@ -440,8 +440,8 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(catalog.points(&one).len(), 1);
-        assert_eq!(catalog.points(&many).len(), 10);
+        assert_eq!(catalog.points(&one).len(), 4);
+        assert_eq!(catalog.points(&many).len(), 40);
         assert_eq!(
             catalog.build_units(&one).len(),
             catalog.build_units(&many).len(),
@@ -456,17 +456,18 @@ mod tests {
         // Every generic combination is a build: nine strategies over two
         // scalars. k is a runtime axis, so its four values add none.
         let all_kiddo = SelectorSet::parse_all(["impl=kiddo_v6"]).unwrap();
-        assert_eq!(catalog.build_units(&all_kiddo).len(), 9 * 2);
-        assert_eq!(catalog.points(&all_kiddo).len(), 82);
+        assert_eq!(catalog.build_units(&all_kiddo).len(), 9 * 2 + 2);
+        assert_eq!(catalog.points(&all_kiddo).len(), 109);
 
         let one = SelectorSet::parse_all(["impl=kiddo_v6,axis=f64,kiddo.stem=eytzinger"]).unwrap();
-        assert_eq!(catalog.build_units(&one).len(), 1);
-        // 4 exact_nn k-values + 2 within + 2 nnw + 2 bnw (the new corpus cases
-        // also match this selection since they share the same stem and axis)
+        assert_eq!(catalog.build_units(&one).len(), 2);
+        // tuned flatvec + default vec_of_arenas are two monomorphisations of
+        // the same stem/axis; 12 exact_nn + 4 within + 4 bnw + 2 nnw points
+        // match the selection.
         assert_eq!(
             catalog.points(&one).len(),
-            8,
-            "the corpus cases match the stem/axis selection"
+            22,
+            "the tuned and default cases match the stem/axis selection"
         );
 
         // nanoflann and pykdtree resolve in their exec builders, so each is
@@ -474,7 +475,7 @@ mod tests {
         let both = catalog.build_units(&SelectorSet::default());
         assert_eq!(
             both.len(),
-            18 + 1 + 1,
+            9 * 2 + 2 + 1 + 1,
             "every kiddo combination plus nanoflann plus pykdtree"
         );
     }
@@ -507,12 +508,12 @@ mod tests {
             narrow < all,
             "narrow {narrow:?} should be under all {all:?}"
         );
-        // 88 points across all three subjects at default params; 18 kiddo
-        // cases offer k=1. Asserted as counts rather than a ratio, since the
+        // 125 points across all three subjects at default params; 24 kiddo
+        // cases offer k=1 (tuned, default single-query, and default batch). Asserted as counts rather than a ratio, since the
         // two do not divide evenly and a ratio would only obscure that.
         let budget_per_point = std::time::Duration::from_secs(8);
-        assert_eq!(all, budget_per_point * 98);
-        assert_eq!(narrow, budget_per_point * 18);
+        assert_eq!(all, budget_per_point * 125);
+        assert_eq!(narrow, budget_per_point * 24);
     }
 
     /// A listing should only column what actually differs.
@@ -596,7 +597,7 @@ mod tests {
         ])
         .unwrap();
         let over = catalog.over_budget(&sel, 1 << 30); // 1 GiB
-        assert_eq!(over.len(), 1, "only 2^29 should exceed a 1 GiB budget");
+        assert_eq!(over.len(), 4, "only 2^29 should exceed a 1 GiB budget");
         assert_eq!(
             over[0].get("tree_size"),
             Some(&crate::tag::TagValue::Int(1 << 29))

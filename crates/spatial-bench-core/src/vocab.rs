@@ -151,11 +151,25 @@ pub const IDENTITY: &[KeyDef] = &[
         doc: "instruction set actually exercised",
     },
     KeyDef {
-        key: "executor",
+        key: "parallelism",
         kind: Kind::Identity,
-        allowed: Some(&["serial", "parallel", "tuned"]),
+        allowed: Some(&["single_threaded", "multi_threaded"]),
         pow2: false,
-        doc: "execution mode: single-threaded, multi-threaded, or the \n             implementation's auto-tuned choice",
+        doc: "how many processor cores the implementation may use",
+    },
+    KeyDef {
+        key: "query_batching",
+        kind: Kind::Identity,
+        allowed: Some(&["single_query", "batch_query"]),
+        pow2: false,
+        doc: "the shape of the measured operation: one query point through \n             the single-point API, or many through a bulk batch API",
+    },
+    KeyDef {
+        key: "defaults_or_tuned",
+        kind: Kind::Identity,
+        allowed: Some(&["default", "tuned"]),
+        pow2: false,
+        doc: "runner-computed label: default when every configuration \n             parameter equals the manifest's declared defaults for this \n             library version, tuned when any differs. Manifests cannot \n             declare it — the runner derives it at load",
     },
 ];
 
@@ -175,6 +189,13 @@ pub const PARAMS: &[KeyDef] = &[
         allowed: None,
         pow2: false,
         doc: "queries per measurement",
+    },
+    KeyDef {
+        key: "query_batch_size",
+        kind: Kind::Param,
+        allowed: None,
+        pow2: false,
+        doc: "query points per batch API call, for batch_query cases",
     },
     KeyDef {
         key: "radius",
