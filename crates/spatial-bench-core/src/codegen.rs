@@ -168,11 +168,11 @@ mod tests {
         // f32 and f64 are separate monomorphisations, so the two axis values
         // are two combinations even though every other generic axis is fixed.
         let generated = gen_for("impl=kiddo_v6,kiddo.stem=eytzinger");
-        assert_eq!(generated.combinations, 2);
-        assert_eq!(generated.source.matches("bench_case!(").count(), 2);
+        assert_eq!(generated.combinations, 4);
+        assert_eq!(generated.source.matches("bench_case!(").count(), 4);
 
         // The whole catalog is every generic combination.
-        assert_eq!(gen_for("impl=kiddo_v6").combinations, 9 * 2);
+        assert_eq!(gen_for("impl=kiddo_v6").combinations, 9 * 2 + 2);
         assert!(generated.source.contains("use spatial_bench_kiddo_v6::"));
     }
 
