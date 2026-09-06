@@ -150,6 +150,13 @@ pub const IDENTITY: &[KeyDef] = &[
         pow2: false,
         doc: "instruction set actually exercised",
     },
+    KeyDef {
+        key: "executor",
+        kind: Kind::Identity,
+        allowed: Some(&["serial", "parallel", "tuned"]),
+        pow2: false,
+        doc: "execution mode: single-threaded, multi-threaded, or the \n             implementation's auto-tuned choice",
+    },
 ];
 
 /// Core param axes of the `spatial_index` domain. One name per concept — these
