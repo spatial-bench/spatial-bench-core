@@ -88,6 +88,8 @@ pub const UNIVERSAL: &[KeyDef] = &[
             "approx_nn",
             "within_radius",
             "within_unsorted",
+            "nearest_n_within",
+            "best_n_within",
             "best_n",
             "build",
             "add_points",

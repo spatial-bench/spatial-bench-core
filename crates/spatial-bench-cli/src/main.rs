@@ -6,12 +6,13 @@
 //! (§13) so the two cannot drift.
 
 use clap::{Parser, Subcommand, ValueEnum};
+use serde_json::Value;
 use spatial_bench_core::case::{Budget, Runner};
 use spatial_bench_core::catalog::Catalog;
 use spatial_bench_core::picker::Picker;
 use spatial_bench_core::run;
 use spatial_bench_core::selector::SelectorSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 #[derive(Parser)]
@@ -238,9 +239,7 @@ fn run(cli: &Cli) -> Result<(), String> {
         ),
         Some(Command::Machine { explain }) => cmd_machine(*explain),
         Some(Command::Fingerprint { write }) => cmd_fingerprint(*write),
-        Some(Command::Submit { .. }) => {
-            Err("not implemented: the results repository does not exist yet".to_owned())
-        }
+        Some(Command::Submit { to }) => cmd_submit(to.as_deref()),
         Some(Command::Conform { subject }) => cmd_conform(cli, subject.as_deref()),
         Some(Command::Chart { args }) => cmd_chart(args.clone()),
     }
@@ -556,6 +555,274 @@ fn subject_paths(cli: &Cli) -> Result<std::collections::BTreeMap<String, PathBuf
         out.insert(name.to_owned(), dir);
     }
     Ok(out)
+}
+
+/// Submit completed run documents to the dataset repo (§8, §10).
+///
+/// Copies submittable run documents into a checkout of the results repo,
+/// extracts machine fingerprints to `machines/<hash>.toml` (deduplicated),
+/// creates a branch, commits, pushes, and opens a PR via `gh`.
+fn cmd_submit(to: Option<&Path>) -> Result<(), String> {
+    let runs_dir = run::data_dir().join("runs");
+    if !runs_dir.is_dir() {
+        return Err(format!(
+            "no runs directory at {} — run something first",
+            runs_dir.display()
+        ));
+    }
+
+    // Resolve the results repo checkout.
+    let results_dir = match to {
+        Some(dir) => dir.to_path_buf(),
+        None => {
+            // Default: a sibling checkout of the results repo.
+            let engine_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let sibling = engine_root
+                .parent()
+                .expect("engine root has a parent")
+                .join("spatial-bench-results");
+            if sibling.is_dir() {
+                sibling
+            } else {
+                return Err(format!(
+                    "no results repo checkout at {}\nClone it first:\n    git clone https://github.com/spatial-bench/spatial-bench-results.git {}",
+                    sibling.display(),
+                    sibling.display()
+                ));
+            }
+        }
+    };
+
+    // Load and filter submittable runs.
+    let runs_dir_scan = |d: &Path, files: &mut Vec<(String, PathBuf)>| {
+        let Ok(entries) = std::fs::read_dir(d) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "json") {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                files.push((name, path));
+            }
+        }
+    };
+    let mut files: Vec<(String, PathBuf)> = Vec::new();
+    runs_dir_scan(&runs_dir, &mut files);
+    let Ok(months) = std::fs::read_dir(&runs_dir) else {
+        return Err("cannot read the runs directory".to_owned());
+    };
+    for month in months.flatten() {
+        let month_dir = month.path();
+        if month_dir.is_dir() {
+            runs_dir_scan(&month_dir, &mut files);
+        }
+    }
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+
+    // Load each document and check submittability.
+    let mut submittable: Vec<(String, PathBuf, Value)> = Vec::new();
+    let mut skipped = 0;
+    for (_, path) in &files {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(doc) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        if doc.get("schema_version").and_then(Value::as_u64) != Some(1) {
+            skipped += 1;
+            continue;
+        }
+        let Some(run) = doc.get("run") else { continue };
+        let git_dirty = run
+            .get("source")
+            .and_then(|s| s.get("git_dirty"))
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        if git_dirty {
+            skipped += 1;
+            continue;
+        }
+        // Every subject must have sha provenance (S1).
+        let subjects = run.get("subjects").and_then(Value::as_object);
+        let all_pinned = subjects
+            .map(|s| {
+                s.values().all(|v| {
+                    v.get("sha")
+                        .and_then(Value::as_str)
+                        .is_some_and(|s| !s.is_empty())
+                })
+            })
+            .unwrap_or(true);
+        if !all_pinned {
+            skipped += 1;
+            continue;
+        }
+        submittable.push((
+            path.file_name().unwrap().to_string_lossy().into_owned(),
+            path.clone(),
+            doc,
+        ));
+    }
+    if submittable.is_empty() {
+        return Err(format!(
+            "no submittable runs found ({skipped} skipped: worktree builds or missing provenance)"
+        ));
+    }
+    println!(
+        "{} submittable run(s), {skipped} skipped",
+        submittable.len()
+    );
+
+    // Copy run documents into the results repo's datasets/ dir.
+    let datasets_dir = results_dir.join("datasets");
+    std::fs::create_dir_all(&datasets_dir).map_err(|e| e.to_string())?;
+    for (name, src_path, _) in &submittable {
+        // The month subdirectory comes from the filename (YYYYMMDD... → YYYY-MM).
+        let month_dir = format!("{}-{}", &name[..4], &name[4..6]);
+        let dst = datasets_dir.join(&month_dir);
+        std::fs::create_dir_all(&dst).map_err(|e| e.to_string())?;
+        std::fs::copy(src_path, dst.join(name)).map_err(|e| format!("copying {name}: {e}"))?;
+    }
+
+    // Extract machine fingerprints to machines/<hash>.toml (deduplicated).
+    let machines_dir = results_dir.join("machines");
+    std::fs::create_dir_all(&machines_dir).map_err(|e| e.to_string())?;
+    for (_, _, doc) in &submittable {
+        let machine_hash = doc
+            .get("run")
+            .and_then(|r| r.get("machine_hash"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let machine_file = machines_dir.join(format!("{machine_hash}.toml"));
+        if machine_file.exists() {
+            continue;
+        }
+        let Some(machine) = doc.get("run").and_then(|r| r.get("machine")) else {
+            continue;
+        };
+        // Serialize the machine block as TOML (§10: machine detail extracted
+        // once per machine, not repeated in every run).
+        let toml_text = json_to_toml(machine)?;
+        std::fs::write(&machine_file, toml_text).map_err(|e| e.to_string())?;
+    }
+
+    // Create a branch, commit, push, open PR via gh.
+    let branch = format!("submit/{}", chrono_like_timestamp());
+    let git = |args: &[&str]| -> Result<String, String> {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&results_dir)
+            .output()
+            .map_err(|e| format!("git: {e}"))?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    git(&["checkout", "-B", &branch, "main"])?;
+    git(&["add", "-A"])?;
+    let status = git(&["status", "--short"])?;
+    if status.trim().is_empty() {
+        return Ok(()); // nothing new to submit
+    }
+    git(&[
+        "commit",
+        "-m",
+        &format!("submit: {} run document(s)", submittable.len()),
+    ])?;
+    git(&["push", "-u", "origin", &branch])?;
+
+    // Open the PR via gh.
+    let pr_body = format!(
+        "Submits {} run document(s) from {}.\n\nGenerated by `spatial-bench submit`.",
+        submittable.len(),
+        runs_dir.display()
+    );
+    let gh_out = std::process::Command::new("gh")
+        .args([
+            "pr",
+            "create",
+            "--repo",
+            "spatial-bench/spatial-bench-results",
+            "--base",
+            "main",
+            "--head",
+            &branch,
+            "--title",
+            &format!("submit: {} run document(s)", submittable.len()),
+            "--body",
+            &pr_body,
+        ])
+        .output()
+        .map_err(|e| format!("could not run gh: {e}"))?;
+    if !gh_out.status.success() {
+        eprintln!(
+            "warning: could not open the PR (the branch is pushed):\n{}",
+            String::from_utf8_lossy(&gh_out.stderr)
+        );
+    }
+
+    println!("submitted {} run document(s)", submittable.len());
+    Ok(())
+}
+
+/// Convert a JSON value to TOML text. Used for machine fingerprint
+/// extraction (§10: machine detail is extracted once to
+/// `machines/<hash>.toml`, not repeated in every run).
+fn json_to_toml(value: &Value) -> Result<String, String> {
+    // TOML has no null — strip null fields before conversion (the machine
+    // block has null for unreadable components like cpu_base_mhz).
+    let cleaned = strip_nulls(value);
+    let toml_value: toml::Value =
+        serde_json::from_value(cleaned).map_err(|e| format!("JSON to TOML conversion: {e}"))?;
+    toml::to_string_pretty(&toml_value).map_err(|e| format!("TOML serialization: {e}"))
+}
+
+/// Recursively remove null values from a JSON tree — TOML has no null.
+fn strip_nulls(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let cleaned: serde_json::Map<String, Value> = map
+                .iter()
+                .filter(|(_, v)| !v.is_null())
+                .map(|(k, v)| (k.clone(), strip_nulls(v)))
+                .collect();
+            Value::Object(cleaned)
+        }
+        Value::Array(arr) => Value::Array(
+            arr.iter()
+                .filter(|v| !v.is_null())
+                .map(strip_nulls)
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// A timestamp suitable for a branch name: YYYYMMDD-HHMMSS.
+fn chrono_like_timestamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let days = secs / 86_400;
+    let (h, m, s) = ((secs % 86_400) / 3600, (secs % 3600) / 60, secs % 60);
+    // Hinnant's civil-from-days.
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let mth = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let yr = if mth <= 2 { y + 1 } else { y };
+    format!("{yr:04}{mth:02}{d:02}-{h:02}{m:02}{s:02}")
 }
 
 fn cmd_machine(explain: bool) -> Result<(), String> {
