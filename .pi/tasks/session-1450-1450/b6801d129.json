@@ -1,0 +1,16 @@
+{
+  "id": "b6801d129",
+  "name": "Watch kiddo v5 run",
+  "command": "gh run watch 34150994205 -R spatial-bench/spatial-bench-benchers --exit-status --interval 300 > /tmp/v5-run-watch.log 2>&1; echo \"watch exited rc=$? at $(date -u +%H:%M:%S)\" >> /tmp/v5-run-watch.log",
+  "status": "running",
+  "outputPath": ".pi/tasks/session-1450-1450/b6801d129.output",
+  "cwd": "/home/scotty/projects/spatial-bench",
+  "startTime": 1788805029908,
+  "pid": 3321944,
+  "bytesWritten": 0,
+  "isAgent": false,
+  "notified": false,
+  "notifyOnCompletion": true,
+  "triggerOnCompletion": true,
+  "timeoutSeconds": 14400
+}
