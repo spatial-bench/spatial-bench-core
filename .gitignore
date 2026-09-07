@@ -16,3 +16,4 @@ target/
 # Working documents, not shipped
 TODO.md
 REVIEW-*.md
+crates/spatial-bench-results/
