@@ -808,7 +808,10 @@ mod tests {
     #[test]
     fn matrix_expands_into_cases() {
         let catalog = catalog();
-        assert_eq!(catalog.for_subject("kiddo").count(), 109);
+        // for_subject is the unfiltered per-subject view: 109 v6-driver cases
+        // plus 14 v5-driver cases, which the pin's driver selection filters
+        // out of matching().
+        assert_eq!(catalog.for_subject("kiddo").count(), 123);
         assert_eq!(catalog.for_subject("nanoflann").count(), 8);
     }
 
