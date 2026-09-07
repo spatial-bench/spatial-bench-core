@@ -23,5 +23,5 @@ serde_json = "1"
 semver = "1"
 toml = "0.9"
 # The fingerprint checksum: tamper-evidence, not tamper-resistance (design §9).
-hmac = "0.12"
+hmac = "0.13"
 sha2 = "0.10"
