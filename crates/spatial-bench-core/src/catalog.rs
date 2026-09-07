@@ -138,21 +138,26 @@ impl Catalog {
             .map(|f| (f.source_kind.clone(), f.repo.clone(), f.pinned_ref.clone()))
     }
 
-    /// The published driver-crate version a source-less build should depend
-    /// on. Absent means the driver crate has never been published — honest
-    /// refusal beats a guessed version.
-    pub fn driver_version(&self, subject: &str) -> Option<String> {
-        self.subjects
-            .get(subject)
-            .and_then(|f| f.driver_version.clone())
+    /// The driver facts of the driver the pin selects, when its range holds.
+    pub fn selected_driver_facts(&self, subject: &str) -> Option<&DriverFacts> {
+        self.selected_driver(subject).ok()
     }
 
-    /// The manifest-relative driver path, resolved against the manifest's own
-    /// directory — the bencher-repo layout, where driver assets live beside
-    /// the manifest. `None` when the manifest declares none.
+    /// The published driver-crate version a source-less build should depend
+    /// on — the pin-selected driver's. Absent means the driver crate has
+    /// never been published — honest refusal beats a guessed version.
+    pub fn driver_version(&self, subject: &str) -> Option<String> {
+        self.selected_driver_facts(subject)
+            .and_then(|d| d.version.clone())
+    }
+
+    /// The manifest-relative driver path of the pin-selected driver, resolved
+    /// against the manifest's own directory — the bencher-repo layout, where
+    /// driver assets live beside the manifest. `None` when the manifest
+    /// declares none.
     pub fn manifest_driver_path(&self, subject: &str) -> Option<std::path::PathBuf> {
         let facts = self.subjects.get(subject)?;
-        let rel = facts.driver_path.as_ref()?;
+        let rel = self.selected_driver_facts(subject)?.path.as_ref()?;
         let dir = facts.manifest_dir.join(rel);
         dir.is_dir().then_some(dir)
     }
@@ -192,15 +197,15 @@ impl Catalog {
 
     /// Cargo features a subject is built with.
     pub fn features(&self, subject: &str) -> Vec<String> {
-        self.subjects
-            .get(subject)
-            .map(|f| f.features.clone())
+        self.selected_driver_facts(subject)
+            .map(|d| d.features.clone())
             .unwrap_or_default()
     }
 
     /// RUSTFLAGS a subject's driver is built with.
     pub fn rustflags(&self, subject: &str) -> Option<String> {
-        self.subjects.get(subject).and_then(|f| f.rustflags.clone())
+        self.selected_driver_facts(subject)
+            .and_then(|d| d.rustflags.clone())
     }
 
     /// Any RUSTFLAGS in play, for the run record. Distinct values across
