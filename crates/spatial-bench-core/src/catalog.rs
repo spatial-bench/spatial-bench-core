@@ -256,6 +256,17 @@ impl Catalog {
         self.cases
             .iter()
             .filter(|c| sel.admits_case(&c.tags, &c.param_keys()))
+            // A case is only runnable under the driver the pin selects: a
+            // driver scoped to another semver range is not this pin's
+            // driver, and its cases drop out of every count, plan and run.
+            // A pin that selects nothing (not semver, outside every range)
+            // contributes no cases; the run path surfaces the reason when it
+            // reaches that subject.
+            .filter(|c| {
+                self.selected_driver(&c.subject)
+                    .map(|d| d.name == c.driver)
+                    .unwrap_or(false)
+            })
             .collect()
     }
 
