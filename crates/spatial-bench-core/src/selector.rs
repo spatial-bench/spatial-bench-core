@@ -1,7 +1,7 @@
 //! The selector language.
 //!
 //! ```text
-//! impl=kiddo_v6,query=exact_nn,axis=f64,k=1|5|20,tree_size=2^20..2^26
+//! impl=kiddo,query=exact_nn,axis=f64,k=1|5|20,tree_size=2^20..2^26
 //! ```
 //!
 //! `,` = AND · `|` = OR within a key · `..` = inclusive range · `*` = key must
@@ -251,14 +251,14 @@ mod tests {
 
     fn point() -> TagMap {
         tags! {
-            impl_: "kiddo_v6", query: "exact_nn", k: 1, dims: 3, axis: "f64",
+            impl_: "kiddo", query: "exact_nn", k: 1, dims: 3, axis: "f64",
             tree_size: 1_048_576usize, query_count: 1000usize,
         }
     }
 
     #[test]
     fn parses_the_documented_grammar() {
-        let s = Selector::parse("impl=kiddo_v6,k=1|5|20,tree_size=2^20..2^26,axis=*,!query=build")
+        let s = Selector::parse("impl=kiddo,k=1|5|20,tree_size=2^20..2^26,axis=*,!query=build")
             .unwrap();
         assert_eq!(s.clauses.len(), 5);
         assert_eq!(s.clause_for("axis").unwrap().matcher, Match::Any);
@@ -271,10 +271,10 @@ mod tests {
 
     #[test]
     fn and_within_a_selector() {
-        assert!(Selector::parse("impl=kiddo_v6,axis=f64")
+        assert!(Selector::parse("impl=kiddo,axis=f64")
             .unwrap()
             .admits_point(&point()));
-        assert!(!Selector::parse("impl=kiddo_v6,axis=f32")
+        assert!(!Selector::parse("impl=kiddo,axis=f32")
             .unwrap()
             .admits_point(&point()));
     }
@@ -323,8 +323,8 @@ mod tests {
     /// constraint on a param must not filter the case out.
     #[test]
     fn param_clauses_are_deferred_at_case_level() {
-        let case_tags = tags! { impl_: "kiddo_v6", query: "exact_nn", k: 1, axis: "f64" };
-        let sel = Selector::parse("impl=kiddo_v6,tree_size=2^26").unwrap();
+        let case_tags = tags! { impl_: "kiddo", query: "exact_nn", k: 1, axis: "f64" };
+        let sel = Selector::parse("impl=kiddo,tree_size=2^26").unwrap();
         assert!(sel.admits_case(&case_tags, &["tree_size", "query_count"]));
         // …but it does apply once the point is resolved.
         assert!(!sel.admits_point(&point()));
@@ -348,7 +348,7 @@ mod tests {
     #[test]
     fn canonical_form_round_trips() {
         for expr in [
-            "impl=kiddo_v6,k=1|5|20,tree_size=2^20..2^26",
+            "impl=kiddo,k=1|5|20,tree_size=2^20..2^26",
             "axis=*,!query=build",
             "tree_size=2^20|2^23|2^26,query_count=1000",
             "kiddo.stem=eytzinger|donnelly_cyclic_simd_full",

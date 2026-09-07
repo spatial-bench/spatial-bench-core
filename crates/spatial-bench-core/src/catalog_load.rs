@@ -65,18 +65,33 @@ pub fn load_dir(dir: &Path) -> Result<Catalog, ManifestError> {
                 pinned_ref: manifest.source.pinned_ref.clone(),
                 source_kind: manifest.source.kind.clone(),
                 repo: manifest.source.repo.clone(),
-                driver_version: manifest.driver.version.clone(),
+                driver_version: manifest.drivers[0].version.clone(),
                 expected_sha: manifest.source.sha.clone(),
                 source_package: manifest.source.package.clone(),
-                driver_path: manifest.driver.path.clone(),
+                driver_path: manifest.drivers[0].path.clone(),
                 manifest_dir: subject_dir.clone(),
-                features: manifest.driver.features.clone(),
+                features: manifest.drivers[0].features.clone(),
                 min_rustc: manifest
                     .toolchain
                     .as_ref()
                     .and_then(|t| t.min_rustc.clone()),
-                rustflags: manifest.driver.rustflags.clone(),
+                rustflags: manifest.drivers[0].rustflags.clone(),
                 build: manifest.build.clone(),
+                drivers: manifest
+                    .drivers
+                    .iter()
+                    .map(|d| crate::catalog::DriverFacts {
+                        name: d.name.clone(),
+                        min_supported_semver: d.min_supported_semver.clone(),
+                        max_supported_semver: d.max_supported_semver.clone(),
+                        version: d.version.clone(),
+                        path: d.path.clone(),
+                        features: d.features.clone(),
+                        rustflags: d.rustflags.clone(),
+                        macro_name: d.macro_name.clone(),
+                        crate_name: d.crate_name.clone(),
+                    })
+                    .collect(),
             },
         );
         cases.extend(subject_cases);
@@ -149,53 +164,66 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
     // The adapter is typed here or nowhere: an unknown kind is a load error
     // naming the subject (§5's dispatch needs to know every kind it will see),
     // and a two-phase driver without a macro is a broken manifest.
-    let adapter = crate::adapter::Adapter::parse(&manifest.driver.adapter).ok_or(
-        ManifestError::UnknownAdapter {
-            subject: manifest.name.clone(),
-            found: manifest.driver.adapter.clone(),
-        },
-    )?;
-    if adapter == crate::adapter::Adapter::RustCodegen {
-        if manifest.driver.macro_name.is_none() {
-            return Err(ManifestError::UnknownKey {
+    for driver in &manifest.drivers {
+        let adapter = crate::adapter::Adapter::parse(&driver.adapter).ok_or(
+            ManifestError::UnknownAdapter {
                 subject: manifest.name.clone(),
-                key: "driver.macro is required for the rust-codegen adapter".to_owned(),
-            });
-        }
-        if manifest.driver.crate_name.is_none() {
-            return Err(ManifestError::UnknownKey {
-                subject: manifest.name.clone(),
-                key: "driver.crate is required for the rust-codegen adapter".to_owned(),
-            });
-        }
-    }
-    if adapter == crate::adapter::Adapter::Exec {
-        // an exec subject names its language and entry file, and a
-        // build recipe — the harness contract is the interface, but the build
-        // is the language's.
-        match manifest.driver.lang.as_deref() {
-            Some("cxx") | Some("python") => {}
-            other => {
+                found: driver.adapter.clone(),
+            },
+        )?;
+        if adapter == crate::adapter::Adapter::RustCodegen {
+            if driver.macro_name.is_none() {
                 return Err(ManifestError::UnknownKey {
                     subject: manifest.name.clone(),
                     key: format!(
-                        "driver.lang {:?} — exec subjects declare `cxx` or `python`",
-                        other.unwrap_or("(missing)")
+                        "driver `{}`: driver.macro is required for the rust-codegen adapter",
+                        driver.name
+                    ),
+                });
+            }
+            if driver.crate_name.is_none() {
+                return Err(ManifestError::UnknownKey {
+                    subject: manifest.name.clone(),
+                    key: format!(
+                        "driver `{}`: driver.crate is required for the rust-codegen adapter",
+                        driver.name
                     ),
                 });
             }
         }
-        if manifest.driver.entry.is_none() {
-            return Err(ManifestError::UnknownKey {
-                subject: manifest.name.clone(),
-                key: "driver.entry is required for exec subjects".to_owned(),
-            });
-        }
-        if manifest.build.is_none() {
-            return Err(ManifestError::UnknownKey {
-                subject: manifest.name.clone(),
-                key: "a [build] recipe is required for exec subjects".to_owned(),
-            });
+        if adapter == crate::adapter::Adapter::Exec {
+            // an exec subject names its language and entry file, and a
+            // build recipe — the harness contract is the interface, but the
+            // build is the language's.
+            match driver.lang.as_deref() {
+                Some("cxx") | Some("python") => {}
+                other => {
+                    return Err(ManifestError::UnknownKey {
+                        subject: manifest.name.clone(),
+                        key: format!(
+                            "driver `{}`: driver.lang {:?} — exec subjects declare \
+                             `cxx` or `python`",
+                            driver.name,
+                            other.unwrap_or("(missing)")
+                        ),
+                    });
+                }
+            }
+            if driver.entry.is_none() {
+                return Err(ManifestError::UnknownKey {
+                    subject: manifest.name.clone(),
+                    key: format!(
+                        "driver `{}`: driver.entry is required for exec subjects",
+                        driver.name
+                    ),
+                });
+            }
+            if manifest.build.is_none() {
+                return Err(ManifestError::UnknownKey {
+                    subject: manifest.name.clone(),
+                    key: "a [build] recipe is required for exec subjects".to_owned(),
+                });
+            }
         }
     }
 
@@ -221,26 +249,23 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
             compile_time: decl.compile_time,
         })
         .collect();
-    let mut compile_time_keys: Vec<String> = ext
-        .iter()
-        .filter(|e| e.compile_time)
-        .map(|e| e.key.clone())
-        .collect();
     // Extension keys marked compile_time, plus the core keys this subject
     // declares as generic. A core key like `axis` cannot carry the marking
     // itself: it is owned by the domain, and whether it is a generic
     // parameter depends on the subject.
-    for key in &manifest.driver.compile_time {
-        if crate::vocab::lookup(key).is_none() {
-            return Err(ManifestError::UnknownKey {
-                subject: manifest.name.clone(),
-                key: format!("driver.compile_time names `{key}`, not a core key"),
-            });
+    for driver in &manifest.drivers {
+        for key in &driver.compile_time {
+            if crate::vocab::lookup(key).is_none() {
+                return Err(ManifestError::UnknownKey {
+                    subject: manifest.name.clone(),
+                    key: format!(
+                        "driver `{}`: compile_time names `{key}`, not a core key",
+                        driver.name
+                    ),
+                });
+            }
         }
-        compile_time_keys.push(key.clone());
     }
-    // Sorted so generated source is byte-identical run to run.
-    compile_time_keys.sort();
 
     // Parse the declared defaults once: a typo'd value is a load error, not a
     // silent stream of "tuned" labels.
@@ -249,6 +274,33 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
         .iter()
         .map(|(key, default)| Ok((key.clone(), tag_value(default, key, &manifest.name)?)))
         .collect::<Result<_, _>>()?;
+
+    // Every case runs under one driver. With a single driver block the
+    // per-case reference is optional; with several it is required, so a
+    // case cannot silently land under the wrong API.
+    let default_driver = if manifest.drivers.len() == 1 {
+        Some(manifest.drivers[0].name.clone())
+    } else {
+        None
+    };
+    if manifest.drivers.is_empty() {
+        return Err(ManifestError::UnknownKey {
+            subject: manifest.name.clone(),
+            key: "no [[driver]] block — the engine cannot build this subject".to_owned(),
+        });
+    }
+    let driver_for = |decl: &crate::manifest::CaseDecl| -> Result<String, ManifestError> {
+        match (&decl.driver, &default_driver) {
+            (Some(d), _) => Ok(d.clone()),
+            (None, Some(d)) => Ok(d.clone()),
+            (None, None) => Err(ManifestError::UnknownKey {
+                subject: manifest.name.clone(),
+                key: "case is missing its driver reference, which is required \
+                      when the manifest declares several [[driver]] blocks"
+                    .to_owned(),
+            }),
+        }
+    };
 
     let mut cases = Vec::new();
     // The runner owns the defaults_or_tuned label: a manifest cannot declare
@@ -301,6 +353,27 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
                 TagKey::Borrowed("defaults_or_tuned"),
                 TagValue::Word(label.to_owned()),
             );
+            let driver_name = driver_for(decl)?;
+            let Some(driver) = manifest.drivers.iter().find(|d| d.name == driver_name) else {
+                return Err(ManifestError::UnknownKey {
+                    subject: manifest.name.clone(),
+                    key: format!("case references unknown driver `{driver_name}`"),
+                });
+            };
+            let adapter = crate::adapter::Adapter::parse(&driver.adapter).ok_or(
+                ManifestError::UnknownAdapter {
+                    subject: manifest.name.clone(),
+                    found: driver.adapter.clone(),
+                },
+            )?;
+            let mut case_keys: Vec<String> = ext
+                .iter()
+                .filter(|e| e.compile_time)
+                .map(|e| e.key.clone())
+                .collect();
+            case_keys.extend(driver.compile_time.iter().cloned());
+            // Sorted so generated source is byte-identical run to run.
+            case_keys.sort();
             cases.push(Case {
                 id: format!("{}:{}", manifest.name, cases.len()),
                 tags,
@@ -308,11 +381,12 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
                 runners: decl.runners.clone(),
                 adapter,
                 subject: manifest.name.clone(),
-                driver_crate: manifest.driver.crate_name.clone(),
-                driver_macro: manifest.driver.macro_name.clone(),
-                driver_lang: manifest.driver.lang.clone(),
-                driver_entry: manifest.driver.entry.clone(),
-                compile_time_keys: compile_time_keys.clone(),
+                driver_crate: driver.crate_name.clone(),
+                driver_macro: driver.macro_name.clone(),
+                driver_lang: driver.lang.clone(),
+                driver_entry: driver.entry.clone(),
+                driver: driver_name,
+                compile_time_keys: case_keys,
             });
         }
     }
@@ -537,7 +611,8 @@ mod tests {
                  kind = \"{source_kind}\"\n\
                  repo = \"https://example.com/{name}\"\n\
                  pinned_ref = \"v1\"\n\
-                 [driver]\n\
+                 [[driver]]\n\
+                 name = \"default\"\n\
                  adapter = \"rust-codegen\"\n\
                  crate = \"{name}-driver\"\n\
                  macro = \"bench_case\"\n\
@@ -632,7 +707,8 @@ mod tests {
              kind = \"cargo-git\"\n\
              repo = \"https://example.com/weird\"\n\
              pinned_ref = \"v1\"\n\
-             [driver]\n\
+             [[driver]]\n\
+             name = \"default\"\n\
              adapter = \"rust-coden\"\n\
              crate = \"weird-driver\"\n\
              [[case]]\n\
@@ -668,7 +744,8 @@ mod tests {
              kind = \"cargo-git\"\n\
              repo = \"https://example.com/silent\"\n\
              pinned_ref = \"v1\"\n\
-             [driver]\n\
+             [[driver]]\n\
+             name = \"default\"\n\
              adapter = \"rust-codegen\"\n\
              crate = \"silent-driver\"\n\
              [[case]]\n\
@@ -731,7 +808,7 @@ mod tests {
     #[test]
     fn matrix_expands_into_cases() {
         let catalog = catalog();
-        assert_eq!(catalog.for_subject("kiddo_v6").count(), 109);
+        assert_eq!(catalog.for_subject("kiddo").count(), 109);
         assert_eq!(catalog.for_subject("nanoflann").count(), 8);
     }
 
@@ -744,7 +821,10 @@ mod tests {
         let vocab = catalog.vocabulary();
         assert!(vocab.knows("kiddo.stem"));
         assert!(vocab.knows("nanoflann.leaf_max_size"));
-        assert!(!vocab.knows("kiddo_v6.stem"));
+        assert!(
+            !vocab.knows("pykdtree.stem"),
+            "one subject's extension must not leak into another's namespace"
+        );
         assert!(
             !vocab.knows("stem"),
             "extension must not leak into the core"
@@ -784,7 +864,7 @@ mod tests {
     fn constrained_params_sweep() {
         let catalog = catalog();
         let sel = SelectorSet::parse_all([
-            "impl=kiddo_v6,k=1,kiddo.stem=eytzinger,tree_size=2^20|2^23|2^26",
+            "impl=kiddo,k=1,kiddo.stem=eytzinger,tree_size=2^20|2^23|2^26",
         ])
         .unwrap();
         let points = catalog.points(&sel);
@@ -805,7 +885,7 @@ mod tests {
     fn ranges_expand_within_the_declared_domain() {
         let catalog = catalog();
         let sel = SelectorSet::parse_all([
-            "impl=kiddo_v6,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^16..2^19",
+            "impl=kiddo,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^16..2^19",
         ])
         .unwrap();
         let points = catalog.points(&sel);
@@ -841,7 +921,7 @@ mod tests {
             .iter()
             .map(|(c, _)| c.subject.clone())
             .collect();
-        assert_eq!(subjects, ["kiddo_v6".to_string()].into_iter().collect());
+        assert_eq!(subjects, ["kiddo".to_string()].into_iter().collect());
     }
 
     /// Load order must not depend on readdir order, or two machines would build

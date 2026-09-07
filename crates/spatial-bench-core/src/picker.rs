@@ -257,7 +257,7 @@ mod tests {
     fn never_offers_a_value_that_yields_no_points() {
         let catalog = catalog();
         let mut picker = Picker::new();
-        picker.choose("impl", vec![word("kiddo_v6")]);
+        picker.choose("impl", vec![word("kiddo")]);
         for facet in picker.facets(&catalog) {
             for value in &facet.values {
                 let mut probe = picker.clone();
@@ -308,7 +308,7 @@ mod tests {
     fn preview_counts_cases_points_and_runners() {
         let catalog = catalog();
         let mut picker = Picker::new();
-        picker.choose("impl", vec![word("kiddo_v6")]);
+        picker.choose("impl", vec![word("kiddo")]);
         let preview = picker.preview(&catalog, Runner::Criterion, &Budget::default());
         assert_eq!(preview.cases, 109);
         assert_eq!(preview.points, 109);
@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn printed_command_round_trips() {
         let mut picker = Picker::new();
-        picker.choose("impl", vec![word("kiddo_v6")]);
+        picker.choose("impl", vec![word("kiddo")]);
         picker.choose("k", vec![TagValue::Int(1), TagValue::Int(5)]);
         picker.choose("tree_size", vec![TagValue::Int(1 << 20)]);
 
@@ -360,7 +360,7 @@ mod tests {
         assert_eq!(
             command,
             "spatial-bench run --runner criterion \
-             --select 'impl=kiddo_v6,k=1|5,tree_size=2^20'"
+             --select 'impl=kiddo,k=1|5,tree_size=2^20'"
         );
 
         let expr = command.split('\'').nth(1).unwrap();

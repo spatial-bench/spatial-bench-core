@@ -26,10 +26,14 @@ pub struct Manifest {
     pub toolchain: Option<Toolchain>,
     #[serde(default)]
     pub build: Option<Build>,
-    /// How this subject's driver is built and run. The engine owns the harness
-    /// for every subject, so this describes the engine's own driver crate, not
-    /// anything belonging to the library under test.
-    pub driver: Driver,
+    /// How this subject's driver is built and run. A subject may declare
+    /// several, each scoped to a semver range of the library under test: an
+    /// API change across ranges gets a new driver rather than a broken one.
+    /// The engine selects the driver whose range contains the pinned
+    /// version. The engine owns the harness, so this describes the engine's
+    /// own driver crates, not anything belonging to the library under test.
+    #[serde(default, rename = "driver")]
+    pub drivers: Vec<Driver>,
     /// Extension keys, namespaced under the subject on use (`kiddo.stem`).
     #[serde(default)]
     pub vocab: BTreeMap<String, VocabKey>,
@@ -64,6 +68,16 @@ pub struct Source {
 
 #[derive(Debug, Deserialize)]
 pub struct Driver {
+    /// Names the driver within the subject; cases reference it.
+    pub name: String,
+    /// Lowest library version this driver understands, inclusive. Absent:
+    /// no lower bound.
+    #[serde(default)]
+    pub min_supported_semver: Option<String>,
+    /// Highest library version this driver understands, exclusive. Absent:
+    /// no upper bound.
+    #[serde(default)]
+    pub max_supported_semver: Option<String>,
     /// `exec` for a single-phase driver, `rust-codegen` for a two-phase one.
     pub adapter: String,
     /// Crate providing the driver — rust-codegen only: a rust driver is a
@@ -159,6 +173,11 @@ pub struct CaseDecl {
     pub tags: BTreeMap<String, toml::Value>,
     #[serde(default)]
     pub params: BTreeMap<String, ParamDecl>,
+    /// Which [[driver]] block this case runs under. Required once the
+    /// manifest declares more than one driver; with a single driver it may
+    /// be omitted.
+    #[serde(default)]
+    pub driver: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

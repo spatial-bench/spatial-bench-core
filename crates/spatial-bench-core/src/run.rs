@@ -600,7 +600,7 @@ mod tests {
     #[test]
     fn toolchain_is_the_highest_declared_floor() {
         let catalog = catalog();
-        let selection = SelectorSet::parse_all(["impl=kiddo_v6"]).unwrap();
+        let selection = SelectorSet::parse_all(["impl=kiddo"]).unwrap();
         let paths = BTreeMap::new();
         let config = config(&catalog, &selection, Runner::Criterion, &paths);
         assert_eq!(resolve_toolchain(&config).unwrap(), Some(Version(1, 89, 0)));
@@ -612,13 +612,13 @@ mod tests {
     fn plan_reports_combinations_per_subject() {
         let catalog = catalog();
         let selection =
-            SelectorSet::parse_all(["impl=kiddo_v6,kiddo.stem=eytzinger,isa=avx512"]).unwrap();
+            SelectorSet::parse_all(["impl=kiddo,kiddo.stem=eytzinger,isa=avx512"]).unwrap();
         let paths = BTreeMap::new();
         let plan = plan(&config(&catalog, &selection, Runner::Criterion, &paths)).unwrap();
         assert_eq!(plan.toolchain, Some(Version(1, 89, 0)));
         assert_eq!(plan.subjects.len(), 1);
         let kiddo = &plan.subjects[0];
-        assert_eq!(kiddo.subject, "kiddo_v6");
+        assert_eq!(kiddo.subject, "kiddo");
         // Two scalars over one stem and one leaf: two monomorphisations.
         assert_eq!(kiddo.combinations, 2);
     }
@@ -644,7 +644,7 @@ mod tests {
     #[test]
     fn a_perf_run_is_planned_like_any_other() {
         let catalog = catalog();
-        let selection = SelectorSet::parse_all(["impl=kiddo_v6,k=1,isa=avx512"]).unwrap();
+        let selection = SelectorSet::parse_all(["impl=kiddo,k=1,isa=avx512"]).unwrap();
         let paths = BTreeMap::new();
         let plan = plan(&config(&catalog, &selection, Runner::Perf, &paths)).unwrap();
         assert_eq!(plan.subjects.len(), 1);
@@ -655,16 +655,16 @@ mod tests {
     #[test]
     fn a_moved_tag_is_refused_by_name() {
         let expected = "0123456789abcdef0123456789abcdef01234567";
-        assert!(enforce_sha("kiddo_v6", expected, Some(expected)).is_ok());
+        assert!(enforce_sha("kiddo", expected, Some(expected)).is_ok());
 
         let resolved = "fedcba9876543210fedcba9876543210fedcba98";
-        let err = enforce_sha("kiddo_v6", expected, Some(resolved)).unwrap_err();
+        let err = enforce_sha("kiddo", expected, Some(resolved)).unwrap_err();
         assert!(
             err.contains(expected) && err.contains(resolved) && err.contains("pin moved"),
             "{err}"
         );
 
         // No revision in the lockfile at all: unverifiable is also a refusal.
-        assert!(enforce_sha("kiddo_v6", expected, None).is_err());
+        assert!(enforce_sha("kiddo", expected, None).is_err());
     }
 }

@@ -377,9 +377,9 @@ mod tests {
     #[test]
     fn rust_codegen_prepares_a_materialised_package() {
         let catalog = catalog();
-        let case = catalog.for_subject("kiddo_v6").next().unwrap();
+        let case = catalog.for_subject("kiddo").next().unwrap();
         let request = SubjectRequest {
-            subject: "kiddo_v6".into(),
+            subject: "kiddo".into(),
             adapter: case.adapter,
             build_root: scratch("prepare"),
             toolchain: crate::toolchain::Version(1, 89, 0),
