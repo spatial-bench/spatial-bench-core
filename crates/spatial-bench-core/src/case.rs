@@ -158,6 +158,9 @@ pub struct Case {
     /// exec only: the driver's language and entry file.
     pub driver_lang: Option<String>,
     pub driver_entry: Option<String>,
+    /// Which [[driver]] block this case belongs to: the driver whose
+    /// supported semver range contains the pinned library version.
+    pub driver: String,
     /// Fixed identity tags.
     pub tags: TagMap,
     /// Axes this case can be swept over.

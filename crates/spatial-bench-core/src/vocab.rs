@@ -67,7 +67,7 @@ pub const UNIVERSAL: &[KeyDef] = &[
         key: "impl",
         kind: Kind::Identity,
         allowed: Some(&[
-            "kiddo_v6",
+            "kiddo",
             "kiddo_v5",
             "nanoflann",
             "pykdtree",
@@ -266,7 +266,7 @@ pub fn validate(key: &str, value: &crate::tag::TagValue) -> Result<(), TagError>
 /// An extension key contributed by a subject manifest, e.g. `kiddo.stem`.
 #[derive(Clone, Debug)]
 pub struct ExtKey {
-    /// Owning subject, e.g. `kiddo_v6`.
+    /// Owning subject, e.g. `kiddo`.
     pub subject: String,
     /// Namespaced key as written in tags, e.g. `kiddo.stem`.
     pub key: String,
@@ -335,7 +335,7 @@ impl Vocabulary {
 
 /// The namespace a subject's extension keys must sit under.
 ///
-/// A subject named `kiddo_v6` namespaces as `kiddo.`: the version belongs in
+/// A subject named `kiddo` namespaces as `kiddo.`: the version belongs in
 /// the `impl` tag and the pinned ref, not baked into every extension key, or
 /// `kiddo.stem` and `kiddo_v7.stem` would read as unrelated axes and split a
 /// chart that should be continuous.

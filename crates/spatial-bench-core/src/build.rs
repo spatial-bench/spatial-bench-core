@@ -290,7 +290,7 @@ mod tests {
 
     fn request(source: SubjectSource) -> BuildRequest {
         BuildRequest {
-            subject: "kiddo_v6".into(),
+            subject: "kiddo".into(),
             driver_crate: "spatial-bench-kiddo-v6".into(),
             driver_source: DriverSource::Path(PathBuf::from(
                 "/engine/crates/spatial-bench-kiddo-v6",
@@ -314,7 +314,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
         let dir = materialise(&tmp, &request(SubjectSource::Path("/w/kiddo".into()))).unwrap();
 
-        assert!(dir.ends_with("kiddo_v6/abc123"));
+        assert!(dir.ends_with("kiddo/abc123"));
         let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
         assert!(manifest.contains(r#"kiddo = { path = "/w/kiddo""#));
         assert!(

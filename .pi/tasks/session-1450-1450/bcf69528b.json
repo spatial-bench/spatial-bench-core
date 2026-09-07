@@ -1,0 +1,16 @@
+{
+  "id": "bcf69528b",
+  "name": "Watch submit pipeline run",
+  "command": "gh run watch 34147318628 -R spatial-bench/spatial-bench-benchers --exit-status --interval 300 > /tmp/corpus-watch5.log 2>&1; echo \"watch exited rc=$? at $(date -u +%H:%M:%S)\" >> /tmp/corpus-watch5.log",
+  "status": "running",
+  "outputPath": ".pi/tasks/session-1450-1450/bcf69528b.output",
+  "cwd": "/home/scotty/projects/spatial-bench",
+  "startTime": 1788801752816,
+  "pid": 3194276,
+  "bytesWritten": 0,
+  "isAgent": false,
+  "notified": false,
+  "notifyOnCompletion": true,
+  "triggerOnCompletion": true,
+  "timeoutSeconds": 14400
+}

@@ -244,9 +244,9 @@ mod tests {
             harness_version: HARNESS_VERSION,
             budget: Budget::default(),
             cases: vec![CaseSpec {
-                id: "kiddo_v6:0".into(),
+                id: "kiddo:0".into(),
                 tags: tags! {
-                    impl_: "kiddo_v6", query: "exact_nn", k: 1, dims: 3, axis: "f64",
+                    impl_: "kiddo", query: "exact_nn", k: 1, dims: 3, axis: "f64",
                     tree_size: 1_048_576usize, query_count: 1000usize,
                 },
                 dataset_generator: String::new(),
@@ -260,7 +260,7 @@ mod tests {
     fn spec_round_trips() {
         let json = serde_json::to_string(&spec()).unwrap();
         let back = read_spec(json.as_bytes()).unwrap();
-        assert_eq!(back.cases[0].id, "kiddo_v6:0");
+        assert_eq!(back.cases[0].id, "kiddo:0");
         assert_eq!(back.cases[0].int("tree_size"), Some(1 << 20));
         assert_eq!(back.cases[0].word("query").as_deref(), Some("exact_nn"));
         assert_eq!(back.cases[0].random_seed, 42);
@@ -283,7 +283,7 @@ mod tests {
 
     fn point() -> Point {
         Point {
-            tags: tags! { impl_: "kiddo_v6", k: 1 },
+            tags: tags! { impl_: "kiddo", k: 1 },
             metrics: [(
                 "latency_ns".to_string(),
                 Metric {

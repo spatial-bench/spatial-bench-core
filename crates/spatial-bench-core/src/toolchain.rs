@@ -127,7 +127,7 @@ mod tests {
 
     fn floors() -> Vec<(String, Option<String>)> {
         vec![
-            ("kiddo_v6".into(), Some("1.89.0".into())),
+            ("kiddo".into(), Some("1.89.0".into())),
             ("other".into(), Some("1.75.0".into())),
             ("nanoflann".into(), None), // not a Rust subject
         ]
@@ -160,7 +160,7 @@ mod tests {
                 floor,
                 pinned,
             }) => {
-                assert_eq!(subject, "kiddo_v6");
+                assert_eq!(subject, "kiddo");
                 assert_eq!(floor, "1.89.0");
                 assert_eq!(pinned, "1.80.0");
             }

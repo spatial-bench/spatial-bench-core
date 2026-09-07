@@ -1,0 +1,19 @@
+{
+  "id": "b3406fc11",
+  "name": "Watch corpus run 4",
+  "command": "gh run watch 34089451517 -R spatial-bench/spatial-bench-benchers --exit-status --interval 300 > /tmp/corpus-watch4.log 2>&1; echo \"watch exited rc=$? at $(date -u +%H:%M:%S)\" >> /tmp/corpus-watch4.log",
+  "status": "completed",
+  "outputPath": ".pi/tasks/session-1450-1450/b3406fc11.output",
+  "cwd": "/home/scotty/projects/spatial-bench",
+  "startTime": 1788761277653,
+  "endTime": 1788765495372,
+  "exitCode": 0,
+  "signal": null,
+  "pid": 2755077,
+  "bytesWritten": 0,
+  "isAgent": false,
+  "notified": true,
+  "notifyOnCompletion": true,
+  "triggerOnCompletion": true,
+  "timeoutSeconds": 14400
+}

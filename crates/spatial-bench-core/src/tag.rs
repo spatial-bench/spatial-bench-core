@@ -191,7 +191,7 @@ impl fmt::Display for TagError {
 /// Build a [`TagMap`] literal:
 ///
 /// ```ignore
-/// tags! { impl_: "kiddo_v6", query: "exact_nn", k: 1, dims: 3, axis: "f64" }
+/// tags! { impl_: "kiddo", query: "exact_nn", k: 1, dims: 3, axis: "f64" }
 /// ```
 #[macro_export]
 macro_rules! tags {

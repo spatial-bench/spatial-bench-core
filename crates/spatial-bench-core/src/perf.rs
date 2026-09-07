@@ -238,7 +238,7 @@ mod tests {
             },
         );
         let mut point = Point {
-            tags: tags! { impl_: "kiddo_v6", k: 1usize },
+            tags: tags! { impl_: "kiddo", k: 1usize },
             metrics,
             stats: None,
             provenance: None,

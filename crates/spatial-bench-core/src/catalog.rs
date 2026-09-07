@@ -39,6 +39,23 @@ pub struct SubjectFacts {
     pub features: Vec<String>,
     pub min_rustc: Option<String>,
     pub rustflags: Option<String>,
+    /// One per [[driver]] block, each scoped to a semver range of the
+    /// library under test. The pin's version selects which one runs.
+    pub drivers: Vec<DriverFacts>,
+}
+
+/// The build-relevant slice of one [[driver]] block.
+#[derive(Clone, Debug)]
+pub struct DriverFacts {
+    pub name: String,
+    pub min_supported_semver: Option<String>,
+    pub max_supported_semver: Option<String>,
+    pub version: Option<String>,
+    pub path: Option<String>,
+    pub features: Vec<String>,
+    pub rustflags: Option<String>,
+    pub macro_name: Option<String>,
+    pub crate_name: Option<String>,
 }
 
 impl Catalog {
@@ -52,6 +69,60 @@ impl Catalog {
             vocab,
             subjects,
         }
+    }
+
+    /// The driver this subject's pin selects: the one whose supported
+    /// semver range contains the version the pin names. Ranges are
+    /// inclusive at the bottom and exclusive at the top; a missing bound is
+    /// open. A pin outside every range, or matching several, is refused.
+    pub fn selected_driver(&self, subject: &str) -> Result<&DriverFacts, String> {
+        let facts = self
+            .subjects
+            .get(subject)
+            .ok_or_else(|| format!("{subject}: no such subject"))?;
+        let version = semver::Version::parse(
+            facts
+                .pinned_ref
+                .trim_start_matches(['v', 'V'])
+                .split(['-', '+'])
+                .next()
+                .unwrap_or(""),
+        )
+        .map_err(|e| {
+            format!(
+                "{subject}: the pinned ref `{}` is not a semver version, so no \
+                 driver range can be selected: {e}",
+                facts.pinned_ref
+            )
+        })?;
+        let mut matches = facts.drivers.iter().filter(|d| {
+            let above_min = d
+                .min_supported_semver
+                .as_deref()
+                .and_then(|s| semver::Version::parse(s.trim_start_matches('v')).ok())
+                .map(|min| version >= min)
+                .unwrap_or(true);
+            let below_max = d
+                .max_supported_semver
+                .as_deref()
+                .and_then(|s| semver::Version::parse(s.trim_start_matches('v')).ok())
+                .map(|max| version < max)
+                .unwrap_or(true);
+            above_min && below_max
+        });
+        let Some(selected) = matches.next() else {
+            return Err(format!(
+                "{subject}: the pinned version {version} is outside every \
+                 driver's supported range"
+            ));
+        };
+        if matches.next().is_some() {
+            return Err(format!(
+                "{subject}: the pinned version {version} is inside more than \
+                 one driver's supported range — tighten the ranges"
+            ));
+        }
+        Ok(selected)
     }
 
     /// The revision a subject is pinned to.
@@ -410,7 +481,7 @@ mod tests {
     #[test]
     fn compile_time_keys_are_the_generic_parameters() {
         let catalog = catalog();
-        let case = catalog.for_subject("kiddo_v6").next().unwrap();
+        let case = catalog.for_subject("kiddo").next().unwrap();
         let keys = &case.compile_time_keys;
         assert!(keys.contains(&"kiddo.stem".to_string()));
         assert!(keys.contains(&"kiddo.leaf".to_string()));
@@ -431,12 +502,11 @@ mod tests {
     #[test]
     fn runtime_sweeps_do_not_multiply_builds() {
         let catalog = catalog();
-        let one = SelectorSet::parse_all([
-            "impl=kiddo_v6,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^20",
-        ])
-        .unwrap();
+        let one =
+            SelectorSet::parse_all(["impl=kiddo,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^20"])
+                .unwrap();
         let many = SelectorSet::parse_all([
-            "impl=kiddo_v6,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^16..2^25",
+            "impl=kiddo,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^16..2^25",
         ])
         .unwrap();
 
@@ -455,11 +525,11 @@ mod tests {
         let catalog = catalog();
         // Every generic combination is a build: nine strategies over two
         // scalars. k is a runtime axis, so its four values add none.
-        let all_kiddo = SelectorSet::parse_all(["impl=kiddo_v6"]).unwrap();
+        let all_kiddo = SelectorSet::parse_all(["impl=kiddo"]).unwrap();
         assert_eq!(catalog.build_units(&all_kiddo).len(), 9 * 2 + 2);
         assert_eq!(catalog.points(&all_kiddo).len(), 109);
 
-        let one = SelectorSet::parse_all(["impl=kiddo_v6,axis=f64,kiddo.stem=eytzinger"]).unwrap();
+        let one = SelectorSet::parse_all(["impl=kiddo,axis=f64,kiddo.stem=eytzinger"]).unwrap();
         assert_eq!(catalog.build_units(&one).len(), 2);
         // tuned flatvec + default vec_of_arenas are two monomorphisations of
         // the same stem/axis; 12 exact_nn + 4 within + 4 bnw + 2 nnw points
@@ -500,7 +570,7 @@ mod tests {
         let budget = Budget::default();
         let all = catalog.estimate(&SelectorSet::default(), Runner::Criterion, &budget);
         let narrow = catalog.estimate(
-            &SelectorSet::parse_all(["impl=kiddo_v6,k=1"]).unwrap(),
+            &SelectorSet::parse_all(["impl=kiddo,k=1"]).unwrap(),
             Runner::Criterion,
             &budget,
         );
@@ -520,7 +590,7 @@ mod tests {
     #[test]
     fn varying_keys_excludes_what_every_case_shares() {
         let catalog = catalog();
-        let keys = catalog.varying_keys(&SelectorSet::parse_all(["impl=kiddo_v6"]).unwrap());
+        let keys = catalog.varying_keys(&SelectorSet::parse_all(["impl=kiddo"]).unwrap());
         assert!(keys.contains(&"k".to_string()));
         assert!(keys.contains(&"axis".to_string()));
         assert!(!keys.contains(&"impl".to_string()), "shared by every row");
@@ -532,7 +602,7 @@ mod tests {
     #[test]
     fn unreachable_selector_values_are_reported() {
         let catalog = catalog();
-        let sel = SelectorSet::parse_all(["impl=kiddo_v6,k=1|999"]).unwrap();
+        let sel = SelectorSet::parse_all(["impl=kiddo,k=1|999"]).unwrap();
         assert_eq!(catalog.unsatisfied(&sel), vec!["k=999".to_string()]);
     }
 
@@ -543,13 +613,10 @@ mod tests {
     #[test]
     fn unreachable_ranges_are_reported() {
         let catalog = catalog();
-        let sel = SelectorSet::parse_all(["impl=kiddo_v6,tree_size=2^40..2^41"]).unwrap();
+        let sel = SelectorSet::parse_all(["impl=kiddo,tree_size=2^40..2^41"]).unwrap();
         assert_eq!(
             catalog.unsatisfied(&sel),
-            vec![
-                "impl=kiddo_v6".to_string(),
-                "tree_size=2^40..2^41".to_string()
-            ]
+            vec!["impl=kiddo".to_string(), "tree_size=2^40..2^41".to_string()]
         );
     }
 
@@ -561,10 +628,10 @@ mod tests {
         let catalog = catalog();
         // kiddo declares `hugepages` vocabulary but no case sets it, so the
         // key exists in the vocabulary and in no point.
-        let sel = SelectorSet::parse_all(["impl=kiddo_v6,kiddo.hugepages=*"]).unwrap();
+        let sel = SelectorSet::parse_all(["impl=kiddo,kiddo.hugepages=*"]).unwrap();
         assert_eq!(
             catalog.unsatisfied(&sel),
-            vec!["impl=kiddo_v6".to_string(), "kiddo.hugepages=*".to_string()]
+            vec!["impl=kiddo".to_string(), "kiddo.hugepages=*".to_string()]
         );
     }
 
@@ -572,7 +639,7 @@ mod tests {
     #[test]
     fn satisfied_values_are_not_reported() {
         let catalog = catalog();
-        let sel = SelectorSet::parse_all(["impl=kiddo_v6,k=1|5|20|50"]).unwrap();
+        let sel = SelectorSet::parse_all(["impl=kiddo,k=1|5|20|50"]).unwrap();
         assert!(catalog.unsatisfied(&sel).is_empty());
     }
 
@@ -593,7 +660,7 @@ mod tests {
     fn over_budget_flags_only_what_exceeds_it() {
         let catalog = catalog();
         let sel = SelectorSet::parse_all([
-            "impl=kiddo_v6,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^16|2^29",
+            "impl=kiddo,k=1,axis=f64,kiddo.stem=eytzinger,tree_size=2^16|2^29",
         ])
         .unwrap();
         let over = catalog.over_budget(&sel, 1 << 30); // 1 GiB

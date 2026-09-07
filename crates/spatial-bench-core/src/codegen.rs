@@ -125,7 +125,18 @@ pub fn by_subject<'a>(
 ) -> Vec<(String, Vec<&'a Case>)> {
     let mut groups: std::collections::BTreeMap<String, Vec<&'a Case>> = Default::default();
     for case in catalog.matching(sel) {
-        groups.entry(case.subject.clone()).or_default().push(case);
+        // Only cases under the driver the pin selects are runnable: an
+        // API-scoped driver for another range is not a broken case, it is
+        // simply not this pin's driver.
+        let selected = match catalog.selected_driver(&case.subject) {
+            Ok(d) => d.name.clone(),
+            // A subject whose pin selects nothing contributes no cases; the
+            // run/plan path surfaces the reason when it reaches that subject.
+            Err(_) => continue,
+        };
+        if case.driver == selected {
+            groups.entry(case.subject.clone()).or_default().push(case);
+        }
     }
     groups.into_iter().collect()
 }
@@ -153,7 +164,7 @@ mod tests {
         let catalog = catalog();
         let selection = SelectorSet::parse_all([sel]).unwrap();
         let groups = by_subject(&catalog, &selection);
-        let (subject, cases) = groups.into_iter().find(|(s, _)| s == "kiddo_v6").unwrap();
+        let (subject, cases) = groups.into_iter().find(|(s, _)| s == "kiddo").unwrap();
         generate(
             "spatial-bench-kiddo-v6",
             "bench_case",
@@ -167,12 +178,12 @@ mod tests {
     fn emits_one_invocation_per_combination() {
         // f32 and f64 are separate monomorphisations, so the two axis values
         // are two combinations even though every other generic axis is fixed.
-        let generated = gen_for("impl=kiddo_v6,kiddo.stem=eytzinger");
+        let generated = gen_for("impl=kiddo,kiddo.stem=eytzinger");
         assert_eq!(generated.combinations, 4);
         assert_eq!(generated.source.matches("bench_case!(").count(), 4);
 
         // The whole catalog is every generic combination.
-        assert_eq!(gen_for("impl=kiddo_v6").combinations, 9 * 2 + 2);
+        assert_eq!(gen_for("impl=kiddo").combinations, 9 * 2 + 2);
         assert!(generated.source.contains("use spatial_bench_kiddo_v6::"));
     }
 
@@ -180,7 +191,7 @@ mod tests {
     /// shared dataset and means nothing inside one subject's own driver.
     #[test]
     fn macro_arguments_are_namespace_stripped_and_sorted() {
-        let generated = gen_for("impl=kiddo_v6,kiddo.stem=eytzinger");
+        let generated = gen_for("impl=kiddo,kiddo.stem=eytzinger");
         let line = generated
             .source
             .lines()
@@ -198,8 +209,8 @@ mod tests {
     /// The property the whole two-phase design exists for.
     #[test]
     fn runtime_sweeps_do_not_add_combinations() {
-        let one = gen_for("impl=kiddo_v6,kiddo.stem=eytzinger,tree_size=2^20");
-        let many = gen_for("impl=kiddo_v6,kiddo.stem=eytzinger,tree_size=2^16..2^25");
+        let one = gen_for("impl=kiddo,kiddo.stem=eytzinger,tree_size=2^20");
+        let many = gen_for("impl=kiddo,kiddo.stem=eytzinger,tree_size=2^16..2^25");
         assert_eq!(one.combinations, many.combinations);
         assert_eq!(
             one.source, many.source,
@@ -212,8 +223,8 @@ mod tests {
     #[test]
     fn generation_is_deterministic() {
         assert_eq!(
-            gen_for("impl=kiddo_v6,kiddo.stem=eytzinger"),
-            gen_for("impl=kiddo_v6,kiddo.stem=eytzinger")
+            gen_for("impl=kiddo,kiddo.stem=eytzinger"),
+            gen_for("impl=kiddo,kiddo.stem=eytzinger")
         );
     }
 
@@ -222,10 +233,10 @@ mod tests {
     #[test]
     fn cache_key_covers_more_than_the_source() {
         let catalog = catalog();
-        let selection = SelectorSet::parse_all(["impl=kiddo_v6"]).unwrap();
+        let selection = SelectorSet::parse_all(["impl=kiddo"]).unwrap();
         let cases: Vec<&Case> = catalog.matching(&selection);
 
-        let base = generate("d", "bench_case", "kiddo_v6", &cases, &inputs());
+        let base = generate("d", "bench_case", "kiddo", &cases, &inputs());
         for mutate in [
             |i: &mut BuildInputs| i.toolchain = "1.90.0".into(),
             |i: &mut BuildInputs| i.subject_rev = "deadbeef".into(),
@@ -235,7 +246,7 @@ mod tests {
         ] {
             let mut changed = inputs();
             mutate(&mut changed);
-            let other = generate("d", "bench_case", "kiddo_v6", &cases, &changed);
+            let other = generate("d", "bench_case", "kiddo", &cases, &changed);
             assert_eq!(other.source, base.source);
             assert_ne!(other.cache_key, base.cache_key);
         }
@@ -245,15 +256,15 @@ mod tests {
     #[test]
     fn feature_order_does_not_change_the_key() {
         let catalog = catalog();
-        let selection = SelectorSet::parse_all(["impl=kiddo_v6"]).unwrap();
+        let selection = SelectorSet::parse_all(["impl=kiddo"]).unwrap();
         let cases: Vec<&Case> = catalog.matching(&selection);
         let mut a = inputs();
         a.features = vec!["simd".into(), "logging_off".into()];
         let mut b = inputs();
         b.features = vec!["logging_off".into(), "simd".into()];
         assert_eq!(
-            generate("d", "bench_case", "kiddo_v6", &cases, &a).cache_key,
-            generate("d", "bench_case", "kiddo_v6", &cases, &b).cache_key
+            generate("d", "bench_case", "kiddo", &cases, &a).cache_key,
+            generate("d", "bench_case", "kiddo", &cases, &b).cache_key
         );
     }
 
