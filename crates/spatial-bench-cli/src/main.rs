@@ -254,7 +254,7 @@ fn run(cli: &Cli) -> Result<(), String> {
         Some(Command::Fingerprint { write }) => cmd_fingerprint(*write),
         Some(Command::Submit { to }) => cmd_submit(to.as_deref()),
         Some(Command::Publish { results, out, sha }) => {
-            cmd_publish(results.as_deref(), &out, sha.as_deref())
+            cmd_publish(results.as_deref(), out.as_path(), sha.as_deref())
         }
         Some(Command::Conform { subject }) => cmd_conform(cli, subject.as_deref()),
         Some(Command::Chart { args }) => cmd_chart(args.clone()),
