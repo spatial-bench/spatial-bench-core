@@ -603,7 +603,7 @@ mod tests {
         let selection = SelectorSet::parse_all(["impl=kiddo"]).unwrap();
         let paths = BTreeMap::new();
         let config = config(&catalog, &selection, Runner::Criterion, &paths);
-        assert_eq!(resolve_toolchain(&config).unwrap(), Some(Version(1, 89, 0)));
+        assert_eq!(resolve_toolchain(&config).unwrap(), Some(Version(1, 90, 0)));
     }
 
     /// A dry run plans real builds: the manifest's compile-time axes become
@@ -615,7 +615,7 @@ mod tests {
             SelectorSet::parse_all(["impl=kiddo,kiddo.stem=eytzinger,isa=avx512"]).unwrap();
         let paths = BTreeMap::new();
         let plan = plan(&config(&catalog, &selection, Runner::Criterion, &paths)).unwrap();
-        assert_eq!(plan.toolchain, Some(Version(1, 89, 0)));
+        assert_eq!(plan.toolchain, Some(Version(1, 90, 0)));
         assert_eq!(plan.subjects.len(), 1);
         let kiddo = &plan.subjects[0];
         assert_eq!(kiddo.subject, "kiddo");
