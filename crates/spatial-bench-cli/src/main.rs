@@ -109,6 +109,19 @@ enum Command {
         #[arg(long)]
         to: Option<PathBuf>,
     },
+    /// Collate a results checkout into a SQLite file for the front-end.
+    Publish {
+        /// Results repo checkout (default: sibling of the engine checkout).
+        #[arg(long)]
+        results: Option<PathBuf>,
+        /// Where to write the database.
+        #[arg(long, default_value = "benchmarks.sqlite")]
+        out: PathBuf,
+        /// The git revision this collation represents; recorded in
+        /// latest.json so the front-end can detect a new snapshot.
+        #[arg(long)]
+        sha: Option<String>,
+    },
     /// Check the catalog against what the benchmark binaries really run.
     Conform {
         #[arg(long)]
@@ -240,6 +253,9 @@ fn run(cli: &Cli) -> Result<(), String> {
         Some(Command::Machine { explain }) => cmd_machine(*explain),
         Some(Command::Fingerprint { write }) => cmd_fingerprint(*write),
         Some(Command::Submit { to }) => cmd_submit(to.as_deref()),
+        Some(Command::Publish { results, out, sha }) => {
+            cmd_publish(results.as_deref(), &out, sha.as_deref())
+        }
         Some(Command::Conform { subject }) => cmd_conform(cli, subject.as_deref()),
         Some(Command::Chart { args }) => cmd_chart(args.clone()),
     }
@@ -1125,4 +1141,309 @@ fn human(d: std::time::Duration) -> String {
         s if s < 3600 => format!("{}m{:02}s", s / 60, s % 60),
         s => format!("{}h{:02}m", s / 3600, (s % 3600) / 60),
     }
+}
+
+/// Collate a results checkout into one SQLite file: the front-end's entire
+/// data source. The repo stays the source of truth and the audit trail; this
+/// is a deterministic rebuild over it, so publishing can never drift from
+/// what the PRs reviewed.
+///
+/// Core identity keys become real columns (they are a closed vocabulary —
+/// that is the design); every other tag lands in `point_tags`, so a subject's
+/// own namespace (`kiddo.stem`) is queryable without schema surgery.
+fn cmd_publish(results: Option<&Path>, out: &Path, sha: Option<&str>) -> Result<(), String> {
+    use serde_json::Value;
+    use std::collections::BTreeSet;
+
+    let results_dir = match results {
+        Some(dir) => dir.to_path_buf(),
+        None => {
+            let engine_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            engine_root
+                .parent()
+                .expect("engine root has a parent")
+                .join("spatial-bench-results")
+        }
+    };
+    if !results_dir.is_dir() {
+        return Err(format!(
+            "no results checkout at {} — clone it or pass --results",
+            results_dir.display()
+        ));
+    }
+
+    if out.exists() {
+        std::fs::remove_file(out)
+            .map_err(|e| format!("could not replace {}: {e}", out.display()))?;
+    }
+    let conn = rusqlite::Connection::open(out)
+        .map_err(|e| format!("could not open {}: {e}", out.display()))?;
+    conn.execute_batch(
+        r#"
+        PRAGMA journal_mode = OFF;
+        CREATE TABLE runs (
+            id TEXT PRIMARY KEY,
+            started_at TEXT,
+            finished_at TEXT,
+            runner TEXT,
+            machine_hash TEXT,
+            toolchain TEXT,
+            engine_version TEXT,
+            git_dirty INTEGER,
+            fingerprint TEXT
+        );
+        CREATE TABLE machines (
+            hash TEXT PRIMARY KEY,
+            cpu_model TEXT,
+            cores_physical INTEGER,
+            threads_online INTEGER,
+            mem_total_bytes INTEGER,
+            board TEXT,
+            chipset TEXT,
+            kernel TEXT,
+            os TEXT,
+            governor TEXT,
+            smt INTEGER,
+            boost INTEGER
+        );
+        CREATE TABLE points (
+            id INTEGER PRIMARY KEY,
+            run_id TEXT REFERENCES runs(id),
+            impl TEXT NOT NULL,
+            version TEXT,
+            pinned_ref TEXT,
+            sha TEXT,
+            axis TEXT, query TEXT, k INTEGER, dims INTEGER,
+            metric TEXT, dataset TEXT,
+            parallelism TEXT, query_batching TEXT, isa TEXT, config TEXT,
+            tree_size INTEGER, query_count INTEGER, query_batch_size INTEGER,
+            latency_ns REAL, latency_ns_lower REAL, latency_ns_upper REAL,
+            throughput_qps REAL,
+            median_ns REAL, mad_ns REAL, std_dev_ns REAL,
+            samples INTEGER, ci REAL
+        );
+        CREATE TABLE point_tags (
+            point_id INTEGER REFERENCES points(id),
+            key TEXT NOT NULL,
+            value TEXT NOT NULL
+        );
+        CREATE INDEX idx_points_impl ON points(impl, version, axis, query, config);
+        CREATE INDEX idx_points_run ON points(run_id);
+        CREATE INDEX idx_point_tags ON point_tags(key, value);
+        "#,
+    )
+    .map_err(|e| format!("schema: {e}"))?;
+
+    // Core identity keys: columns on `points`. Everything else is a tag.
+    let core_keys: BTreeSet<&str> = [
+        "impl",
+        "axis",
+        "query",
+        "k",
+        "dims",
+        "metric",
+        "dataset",
+        "parallelism",
+        "query_batching",
+        "isa",
+        "defaults_or_tuned",
+        "tree_size",
+        "query_count",
+        "query_batch_size",
+    ]
+    .into_iter()
+    .collect();
+
+    let mut machine_stmt = conn
+        .prepare("INSERT OR REPLACE INTO machines VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)")
+        .map_err(|e| e.to_string())?;
+    let mut machines = 0usize;
+    let machine_dir = results_dir.join("machines");
+    let mut entries: Vec<_> = std::fs::read_dir(&machine_dir)
+        .map_err(|e| format!("{}: {e}", machine_dir.display()))?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+        .collect();
+    entries.sort();
+    for path in &entries {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        // machines/*.toml are TOML; serde_json cannot read them.
+        let v: Value = {
+            let tv: toml::Value =
+                toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+            serde_json::to_value(tv).map_err(|e| e.to_string())?
+        };
+        let hash = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_owned);
+        let i = |k: &str| v.get(k).and_then(|x| x.as_i64());
+        let b = |k: &str| v.get(k).and_then(|x| x.as_bool());
+        machine_stmt
+            .execute(rusqlite::params![
+                hash,
+                s("cpu_model"),
+                i("cores_physical"),
+                i("threads_online"),
+                i("mem_total_bytes"),
+                s("board"),
+                s("chipset"),
+                s("kernel"),
+                s("os"),
+                s("governor"),
+                b("smt"),
+                b("boost"),
+            ])
+            .map_err(|e| e.to_string())?;
+        machines += 1;
+    }
+
+    let mut run_stmt = conn
+        .prepare("INSERT INTO runs VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)")
+        .map_err(|e| e.to_string())?;
+    let mut point_stmt = conn
+        .prepare(
+            "INSERT INTO points (run_id, impl, version, pinned_ref, sha, axis, query, k, \
+             dims, metric, dataset, parallelism, query_batching, isa, config, \
+             tree_size, query_count, query_batch_size, latency_ns, latency_ns_lower, \
+             latency_ns_upper, throughput_qps, median_ns, mad_ns, std_dev_ns, samples, ci) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)",
+        )
+        .map_err(|e| e.to_string())?;
+    let mut tag_stmt = conn
+        .prepare("INSERT INTO point_tags VALUES (?1,?2,?3)")
+        .map_err(|e| e.to_string())?;
+
+    let datasets = results_dir.join("datasets");
+    let mut docs: Vec<_> = walk_json(&datasets);
+    docs.sort();
+    let (mut runs, mut points) = (0usize, 0usize);
+    for path in &docs {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let doc: Value =
+            serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        let run = &doc["run"];
+        let run_id = run["run_id"].as_str().unwrap_or_default().to_owned();
+        run_stmt
+            .execute(rusqlite::params![
+                run_id,
+                run["started_at"].as_str(),
+                run["finished_at"].as_str(),
+                run["runner"].as_str(),
+                run["machine_hash"].as_str(),
+                run["toolchain"].as_str(),
+                run["source"]["crate_version"].as_str(),
+                run["source"]["git_dirty"].as_bool().unwrap_or(false) as i64,
+                run["context"]["fingerprint"].as_str(),
+            ])
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        runs += 1;
+
+        let subjects = &run["subjects"];
+        for point in doc["points"].as_array().ok_or("points is not an array")? {
+            let tags = &point["tags"];
+            let impl_tag = tags["impl"].as_str().unwrap_or_default().to_owned();
+            let subject = &subjects[&impl_tag];
+            let num = |k: &str| tags[k].as_i64();
+            let word = |k: &str| tags[k].as_str().map(str::to_owned);
+            let metric = |k: &str| point["metrics"][k]["point"].as_f64();
+            point_stmt
+                .execute(rusqlite::params![
+                    run_id,
+                    impl_tag,
+                    subject["version"].as_str(),
+                    subject["pinned_ref"].as_str(),
+                    subject["sha"].as_str(),
+                    word("axis"),
+                    word("query"),
+                    num("k"),
+                    num("dims"),
+                    word("metric"),
+                    word("dataset"),
+                    word("parallelism"),
+                    word("query_batching"),
+                    word("isa"),
+                    word("defaults_or_tuned"),
+                    num("tree_size"),
+                    num("query_count"),
+                    num("query_batch_size"),
+                    metric("latency_ns"),
+                    point["metrics"]["latency_ns"]["lower"].as_f64(),
+                    point["metrics"]["latency_ns"]["upper"].as_f64(),
+                    metric("throughput_qps"),
+                    point["stats"]["median_ns"].as_f64(),
+                    point["stats"]["mad_ns"].as_f64(),
+                    point["stats"]["std_dev_ns"].as_f64(),
+                    point["stats"]["samples"].as_i64(),
+                    point["stats"]["ci"].as_f64(),
+                ])
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            let point_id = conn.last_insert_rowid();
+            points += 1;
+            if let Some(map) = tags.as_object() {
+                for (key, value) in map {
+                    if core_keys.contains(key.as_str()) {
+                        continue;
+                    }
+                    let value = match value {
+                        Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    tag_stmt
+                        .execute(rusqlite::params![point_id, key, value])
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
+
+    // latest.json: the only mutable artifact the front-end polls.
+    if let Some(parent) = out.parent() {
+        let manifest = format!(
+            "{{\"db\": {:?}, \"sha\": {}, \"runs\": {}, \"points\": {}, \
+             \"machines\": {}, \"generated_at\": {:?}}}\n",
+            out.file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("benchmarks.sqlite"),
+            sha.map(|s| format!("{s:?}")).unwrap_or("null".to_owned()),
+            runs,
+            points,
+            machines,
+            chrono_now(),
+        );
+        let latest = parent.join("latest.json");
+        std::fs::write(&latest, manifest).map_err(|e| format!("{}: {e}", latest.display()))?;
+    }
+
+    println!(
+        "published {}: {runs} runs, {points} points, {machines} machines",
+        out.display()
+    );
+    Ok(())
+}
+
+fn chrono_now() -> String {
+    // RFC 3339 from the system clock without a chrono dependency: the run
+    // documents already carry precise timestamps; this is a build stamp.
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("{secs}")
+}
+
+/// Every `*.json` under a directory, recursively (datasets/YYYY-MM/…).
+fn walk_json(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(walk_json(&path));
+        } else if path.extension().is_some_and(|x| x == "json") {
+            out.push(path);
+        }
+    }
+    out
 }
