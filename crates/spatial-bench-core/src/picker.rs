@@ -333,8 +333,8 @@ mod tests {
         assert!(p > c, "perf {p:?} should exceed criterion {c:?}");
         assert_eq!(
             c,
-            Duration::from_secs(8) * 129,
-            "129 points at warm-up+measurement (109 kiddo + 8 nanoflann + 12 pykdtree)"
+            Duration::from_secs(8) * catalog.points(&SelectorSet::default()).len() as u32,
+            "one warm-up plus measurement budget per default point"
         );
     }
 
