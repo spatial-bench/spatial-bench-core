@@ -169,6 +169,19 @@ pub struct CmakeBuild {
     /// Libraries relative to the CMake build directory to pass directly to g++.
     #[serde(default)]
     pub libraries: Vec<String>,
+    /// Pinned source dependencies fetched alongside the subject. Their source
+    /// roots are supplied to CMake with the named cache variables.
+    #[serde(default)]
+    pub dependency: Vec<CmakeDependency>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CmakeDependency {
+    pub name: String,
+    pub repo: String,
+    pub pinned_ref: String,
+    pub sha: String,
+    pub cmake_var: String,
 }
 
 #[derive(Debug, Deserialize)]

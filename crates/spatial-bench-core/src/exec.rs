@@ -123,6 +123,18 @@ fn prepare_cxx(
         key_material.push_str(&recipe.include.join("\u{1}"));
         key_material.push('\u{1}');
         key_material.push_str(&recipe.libraries.join("\u{1}"));
+        for dependency in &recipe.dependency {
+            key_material.push('\u{1}');
+            key_material.push_str(&dependency.name);
+            key_material.push('\u{1}');
+            key_material.push_str(&dependency.repo);
+            key_material.push('\u{1}');
+            key_material.push_str(&dependency.pinned_ref);
+            key_material.push('\u{1}');
+            key_material.push_str(&dependency.sha);
+            key_material.push('\u{1}');
+            key_material.push_str(&dependency.cmake_var);
+        }
     }
     key_material.push('\u{1}');
     key_material.push_str(
@@ -213,15 +225,33 @@ fn build_cmake_subject(
             .unwrap_or_else(|| Path::new("")),
     );
     let build = build_root.join(subject).join("cmake");
-    let configured = std::process::Command::new("cmake")
-        .args([
-            "-S",
-            &source.display().to_string(),
-            "-B",
-            &build.display().to_string(),
-            "-G",
-            "Ninja",
-        ])
+    let dependency_root = build_root.join(subject).join("dependencies");
+    let mut configure = std::process::Command::new("cmake");
+    configure.args([
+        "-S",
+        &source.display().to_string(),
+        "-B",
+        &build.display().to_string(),
+        "-G",
+        "Ninja",
+    ]);
+    for dependency in &recipe.dependency {
+        let source = Source {
+            kind: "git".to_owned(),
+            repo: Some(dependency.repo.clone()),
+            package: None,
+            pinned_ref: dependency.pinned_ref.clone(),
+            sha: Some(dependency.sha.clone()),
+        };
+        let (path, _) = fetch_lib_source(
+            &format!("{subject}-{}", dependency.name),
+            &source,
+            Some(&dependency.sha),
+            &dependency_root.join(&dependency.name),
+        )?;
+        configure.arg(format!("-D{}={}", dependency.cmake_var, path.display()));
+    }
+    let configured = configure
         .args(&recipe.configure)
         .output()
         .map_err(|e| format!("could not configure {subject} with cmake: {e}"))?;
