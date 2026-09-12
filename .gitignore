@@ -17,3 +17,4 @@ target/
 TODO.md
 REVIEW-*.md
 crates/spatial-bench-results/
+/.pi
