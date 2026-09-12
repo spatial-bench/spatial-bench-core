@@ -81,6 +81,14 @@ pub fn subject_source(inputs: &Inputs<'_>, subject: &str) -> Result<SubjectSourc
                 reference: pin,
             })
         }
+        "cargo" => Ok(SubjectSource::Registry {
+            version: pin,
+            package: inputs
+                .catalog
+                .source_full(subject)
+                .ok()
+                .and_then(|source| source.package),
+        }),
         other => Err(format!(
             "building {subject} from source kind `{other}` is not implemented \
              yet (it needs the engine's build recipe, not cargo)",

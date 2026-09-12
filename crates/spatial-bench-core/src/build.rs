@@ -19,6 +19,13 @@ pub enum SubjectSource {
         repo: String,
         reference: String,
     },
+    /// A crates.io package pinned to an exact published version.
+    Registry {
+        version: String,
+        /// Optional distribution name when it differs from the generated
+        /// dependency key (Cargo package names may contain hyphens).
+        package: Option<String>,
+    },
 }
 
 /// Where the engine's driver crate comes from for one build.
@@ -93,6 +100,10 @@ pub fn materialise(root: &Path, request: &BuildRequest) -> Result<PathBuf, Build
                 request.features
             )
         }
+        SubjectSource::Registry { version, package } => match package {
+            Some(package) => format!("{{ package = {package:?}, version = {version:?} }}"),
+            None => format!("{version:?}"),
+        },
     };
 
     let driver_dep = match &request.driver_source {

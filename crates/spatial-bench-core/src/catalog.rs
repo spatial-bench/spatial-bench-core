@@ -83,7 +83,10 @@ impl Catalog {
         let version = semver::Version::parse(
             facts
                 .pinned_ref
-                .trim_start_matches(['v', 'V'])
+                // A few upstreams publish semver tags as `v.0.4.1`; accept
+                // that cosmetic leading dot while retaining the exact tag as
+                // the source pin Cargo resolves.
+                .trim_start_matches(['v', 'V', '.'])
                 .split(['-', '+'])
                 .next()
                 .unwrap_or(""),
