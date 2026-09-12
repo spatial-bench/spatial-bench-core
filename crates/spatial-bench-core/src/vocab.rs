@@ -69,6 +69,7 @@ pub const UNIVERSAL: &[KeyDef] = &[
         allowed: Some(&[
             "kiddo",
             "kiddo_v5",
+            "kdtree",
             "nanoflann",
             "pykdtree",
             "pkdtree",
