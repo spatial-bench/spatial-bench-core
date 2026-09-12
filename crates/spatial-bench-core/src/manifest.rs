@@ -145,6 +145,30 @@ pub struct Build {
     /// headers live after the pin is fetched (nanoflann: `include`).
     #[serde(default)]
     pub include: Vec<String>,
+    /// Optional source build performed after the pinned git checkout is
+    /// fetched. This keeps the subject itself out of the host package manager:
+    /// a manual workflow run can change `pinned_ref` and rebuild that exact
+    /// source revision.
+    #[serde(default)]
+    pub cmake: Option<CmakeBuild>,
+}
+
+/// A deliberately small CMake recipe for a C++ subject source tree.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CmakeBuild {
+    /// Source directory relative to the fetched repository; defaults to its root.
+    pub source_dir: Option<PathBuf>,
+    /// Extra arguments passed to CMake's configure step.
+    #[serde(default)]
+    pub configure: Vec<String>,
+    /// Optional CMake target to build. With no target, builds the default set.
+    pub target: Option<String>,
+    /// Header directories relative to the CMake build directory for the shim.
+    #[serde(default)]
+    pub include: Vec<String>,
+    /// Libraries relative to the CMake build directory to pass directly to g++.
+    #[serde(default)]
+    pub libraries: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

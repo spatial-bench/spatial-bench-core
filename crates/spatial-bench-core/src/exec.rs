@@ -75,6 +75,12 @@ fn prepare_cxx(
         inputs.expected_sha.as_deref(),
         &build_root.join(subject).join("sources"),
     )?;
+    let cmake_dir = inputs
+        .build
+        .cmake
+        .as_ref()
+        .map(|recipe| build_cmake_subject(subject, &lib_dir, recipe, build_root))
+        .transpose()?;
 
     // The compiler is part of what is built, so part of the cache key.
     let compiler = std::process::Command::new("g++")
@@ -108,6 +114,16 @@ fn prepare_cxx(
     key_material.push_str(&inputs.build.flags.join("\u{1}"));
     key_material.push('\u{1}');
     key_material.push_str(&inputs.build.include.join("\u{1}"));
+    if let Some(recipe) = &inputs.build.cmake {
+        key_material.push('\u{1}');
+        key_material.push_str(&recipe.configure.join("\u{1}"));
+        key_material.push('\u{1}');
+        key_material.push_str(recipe.target.as_deref().unwrap_or(""));
+        key_material.push('\u{1}');
+        key_material.push_str(&recipe.include.join("\u{1}"));
+        key_material.push('\u{1}');
+        key_material.push_str(&recipe.libraries.join("\u{1}"));
+    }
     key_material.push('\u{1}');
     key_material.push_str(
         &inputs
@@ -150,8 +166,18 @@ fn prepare_cxx(
         for inc in &inputs.build.include {
             cmd.arg(format!("-I{}", lib_dir.join(inc).display()));
         }
+        if let (Some(recipe), Some(cmake_dir)) = (&inputs.build.cmake, &cmake_dir) {
+            for inc in &recipe.include {
+                cmd.arg(format!("-I{}", cmake_dir.join(inc).display()));
+            }
+        }
         cmd.arg("-I").arg(&dir);
         cmd.arg(&inputs.entry).arg("-o").arg(&binary);
+        if let (Some(recipe), Some(cmake_dir)) = (&inputs.build.cmake, &cmake_dir) {
+            for library in &recipe.libraries {
+                cmd.arg(cmake_dir.join(library));
+            }
+        }
         let out = cmd
             .output()
             .map_err(|e| format!("could not run g++: {e}"))?;
@@ -172,6 +198,54 @@ fn prepare_cxx(
         },
         dir,
     ))
+}
+
+fn build_cmake_subject(
+    subject: &str,
+    lib_dir: &Path,
+    recipe: &crate::manifest::CmakeBuild,
+    build_root: &Path,
+) -> Result<PathBuf, String> {
+    let source = lib_dir.join(
+        recipe
+            .source_dir
+            .as_deref()
+            .unwrap_or_else(|| Path::new("")),
+    );
+    let build = build_root.join(subject).join("cmake");
+    let configured = std::process::Command::new("cmake")
+        .args([
+            "-S",
+            &source.display().to_string(),
+            "-B",
+            &build.display().to_string(),
+            "-G",
+            "Ninja",
+        ])
+        .args(&recipe.configure)
+        .output()
+        .map_err(|e| format!("could not configure {subject} with cmake: {e}"))?;
+    if !configured.status.success() {
+        return Err(format!(
+            "configuring {subject} from pinned source failed:\n{}",
+            String::from_utf8_lossy(&configured.stderr)
+        ));
+    }
+    let mut command = std::process::Command::new("cmake");
+    command.args(["--build", &build.display().to_string()]);
+    if let Some(target) = &recipe.target {
+        command.args(["--target", target]);
+    }
+    let built = command
+        .output()
+        .map_err(|e| format!("could not build {subject} with cmake: {e}"))?;
+    if !built.status.success() {
+        return Err(format!(
+            "building {subject} from pinned source failed:\n{}",
+            String::from_utf8_lossy(&built.stderr)
+        ));
+    }
+    Ok(build)
 }
 
 fn prepare_python(
