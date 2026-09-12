@@ -19,6 +19,10 @@ pub enum SubjectSource {
         repo: String,
         reference: String,
     },
+    /// A crates.io package pinned to an exact published version.
+    Registry {
+        version: String,
+    },
 }
 
 /// Where the engine's driver crate comes from for one build.
@@ -93,6 +97,7 @@ pub fn materialise(root: &Path, request: &BuildRequest) -> Result<PathBuf, Build
                 request.features
             )
         }
+        SubjectSource::Registry { version } => format!("{version:?}"),
     };
 
     let driver_dep = match &request.driver_source {

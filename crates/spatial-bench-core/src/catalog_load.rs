@@ -142,7 +142,7 @@ fn lower(manifest: &Manifest) -> Result<(Vec<Case>, Vec<ExtKey>), ManifestError>
     // phrased as "not implemented". `pypi` is the python exec story:
     // the pin is the immutable PyPI version.
     match manifest.source.kind.as_str() {
-        "cargo-git" | "git" | "pypi" => {}
+        "cargo" | "cargo-git" | "git" | "pypi" => {}
         other => {
             return Err(ManifestError::UnknownSourceKind {
                 subject: manifest.name.clone(),
