@@ -134,6 +134,10 @@ fn prepare_cxx(
             key_material.push_str(&dependency.sha);
             key_material.push('\u{1}');
             key_material.push_str(&dependency.cmake_var);
+            key_material.push('\u{1}');
+            if let Some(include) = &dependency.include {
+                key_material.push_str(&include.to_string_lossy());
+            }
         }
     }
     key_material.push('\u{1}');
@@ -181,6 +185,17 @@ fn prepare_cxx(
         if let (Some(recipe), Some(cmake_dir)) = (&inputs.build.cmake, &cmake_dir) {
             for inc in &recipe.include {
                 cmd.arg(format!("-I{}", cmake_dir.join(inc).display()));
+            }
+            for dependency in &recipe.dependency {
+                if let Some(include) = &dependency.include {
+                    let path = build_root
+                        .join(subject)
+                        .join("dependencies")
+                        .join(&dependency.name)
+                        .join(&dependency.sha)
+                        .join(include);
+                    cmd.arg(format!("-I{}", path.display()));
+                }
             }
         }
         cmd.arg("-I").arg(&dir);

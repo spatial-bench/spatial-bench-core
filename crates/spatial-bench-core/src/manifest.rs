@@ -182,6 +182,8 @@ pub struct CmakeDependency {
     pub pinned_ref: String,
     pub sha: String,
     pub cmake_var: String,
+    /// Header directory relative to the fetched dependency root for the shim.
+    pub include: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
