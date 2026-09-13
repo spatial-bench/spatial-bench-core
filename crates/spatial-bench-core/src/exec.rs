@@ -123,6 +123,8 @@ fn prepare_cxx(
         key_material.push_str(&recipe.include.join("\u{1}"));
         key_material.push('\u{1}');
         key_material.push_str(&recipe.libraries.join("\u{1}"));
+        key_material.push('\u{1}');
+        key_material.push_str(&recipe.link_args.join("\u{1}"));
         for dependency in &recipe.dependency {
             key_material.push('\u{1}');
             key_material.push_str(&dependency.name);
@@ -204,6 +206,7 @@ fn prepare_cxx(
             for library in &recipe.libraries {
                 cmd.arg(cmake_dir.join(library));
             }
+            cmd.args(&recipe.link_args);
         }
         let out = cmd
             .output()

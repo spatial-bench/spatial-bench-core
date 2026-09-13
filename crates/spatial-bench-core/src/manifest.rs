@@ -169,6 +169,10 @@ pub struct CmakeBuild {
     /// Libraries relative to the CMake build directory to pass directly to g++.
     #[serde(default)]
     pub libraries: Vec<String>,
+    /// Raw linker arguments required by the pinned source build (for example
+    /// a system runtime dependency of a source-built static library).
+    #[serde(default)]
+    pub link_args: Vec<String>,
     /// Pinned source dependencies fetched alongside the subject. Their source
     /// roots are supplied to CMake with the named cache variables.
     #[serde(default)]
