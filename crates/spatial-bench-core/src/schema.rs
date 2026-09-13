@@ -139,6 +139,11 @@ pub struct SubjectProvenance {
     pub pinned_ref: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sha: Option<String>,
+    /// The language the subject's driver runs in — `rust` for codegen
+    /// subjects, or the manifest's driver language (`cxx`, `python`) for
+    /// exec ones. Recorded so published datasets can group or filter by it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 /// Run-level environment. Deliberately NOT part of point identity — this is what

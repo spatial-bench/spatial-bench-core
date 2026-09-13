@@ -18,3 +18,4 @@ TODO.md
 REVIEW-*.md
 crates/spatial-bench-results/
 /.pi
+bundle.js

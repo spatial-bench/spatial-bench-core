@@ -266,6 +266,10 @@ pub fn execute(config: &RunConfig<'_>) -> Result<RunOutcome, String> {
             enforce_sha(subject, &expected, resolved)?;
         }
 
+        let language = match cases[0].adapter {
+            crate::adapter::Adapter::RustCodegen => Some("rust".to_owned()),
+            _ => cases[0].driver_lang.clone(),
+        };
         subjects.insert(
             subject.clone(),
             SubjectProvenance {
@@ -277,6 +281,7 @@ pub fn execute(config: &RunConfig<'_>) -> Result<RunOutcome, String> {
                 sha: built_from
                     .and_then(|(_, sha)| sha)
                     .or(prepared.resolved_sha.clone()),
+                language,
             },
         );
         collected.extend(built);
