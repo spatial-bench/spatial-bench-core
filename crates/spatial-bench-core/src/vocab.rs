@@ -75,7 +75,7 @@ pub const UNIVERSAL: &[KeyDef] = &[
             "flann",
             "fnntw",
             "geo_index",
-            "kd_tree",
+            "kd-tree",
             "kdtree",
             "kdbush",
             "libnabo",
