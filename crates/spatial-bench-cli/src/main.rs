@@ -1213,6 +1213,7 @@ fn cmd_publish(results: Option<&Path>, out: &Path, sha: Option<&str>) -> Result<
             version TEXT,
             pinned_ref TEXT,
             sha TEXT,
+            language TEXT,
             axis TEXT, query TEXT, k INTEGER, dims INTEGER,
             metric TEXT, dataset TEXT,
             parallelism TEXT, query_batching TEXT, isa TEXT, config TEXT,
@@ -1302,11 +1303,11 @@ fn cmd_publish(results: Option<&Path>, out: &Path, sha: Option<&str>) -> Result<
         .map_err(|e| e.to_string())?;
     let mut point_stmt = conn
         .prepare(
-            "INSERT INTO points (run_id, impl, version, pinned_ref, sha, axis, query, k, \
+            "INSERT INTO points (run_id, impl, version, pinned_ref, sha, language, axis, query, k, \
              dims, metric, dataset, parallelism, query_batching, isa, config, \
              tree_size, query_count, query_batch_size, latency_ns, latency_ns_lower, \
              latency_ns_upper, throughput_qps, median_ns, mad_ns, std_dev_ns, samples, ci) \
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)",
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28)",
         )
         .map_err(|e| e.to_string())?;
     let mut tag_stmt = conn
@@ -1353,6 +1354,7 @@ fn cmd_publish(results: Option<&Path>, out: &Path, sha: Option<&str>) -> Result<
                     subject["version"].as_str(),
                     subject["pinned_ref"].as_str(),
                     subject["sha"].as_str(),
+                    subject["language"].as_str(),
                     word("axis"),
                     word("query"),
                     num("k"),
