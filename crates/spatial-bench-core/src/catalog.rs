@@ -560,7 +560,7 @@ mod tests {
         // one build.
         let both = catalog.build_units(&SelectorSet::default());
         assert!(
-            both.len() >= 9 * 2 + 2 + 1 + 1,
+            both.len() > 9 * 2 + 2 + 1,
             "the default catalog includes every kiddo combination and the exec subjects"
         );
     }
