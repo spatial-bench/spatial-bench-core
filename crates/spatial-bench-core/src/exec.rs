@@ -7,6 +7,8 @@
 //! subject never builds it; selecting one builds exactly its environment.
 
 use crate::manifest::{Build, Source};
+use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// What an exec subject's manifest declares, resolved for one build.
@@ -227,18 +229,55 @@ fn prepare_python(
         }
     }
 
-    // Install the pinned library. A PyPI version is immutable once published,
-    // which is the python side of the S1 pin story; a git pin installs the
-    // exact ref. A subject with no library (pure-stdlib driver) installs
-    // nothing.
+    // Download the exact PyPI distribution before installing it.  A version
+    // pin selects a release, but the digest records precisely which wheel or
+    // sdist was consumed by this benchmark run.
     let pip = dir.join("venv/bin/pip");
-    let installed = match inputs.source.kind.as_str() {
+    let (installed, distribution_sha) = match inputs.source.kind.as_str() {
         "pypi" => {
             let package =
                 inputs.source.package.as_deref().ok_or_else(|| {
                     format!("{subject}: source kind pypi declares no package name")
                 })?;
-            format!("{package}=={pin}")
+            let requirement = format!("{package}=={pin}");
+            let distributions = dir.join("distributions");
+            std::fs::create_dir_all(&distributions)
+                .map_err(|e| format!("{}: {e}", distributions.display()))?;
+            let download = std::process::Command::new(&pip)
+                .args(["download", "--no-deps", "--quiet", "--dest"])
+                .arg(&distributions)
+                .arg(&requirement)
+                .output()
+                .map_err(|e| format!("could not run pip download: {e}"))?;
+            if !download.status.success() {
+                return Err(format!(
+                    "downloading {requirement} for {subject} failed:\n{}",
+                    String::from_utf8_lossy(&download.stderr)
+                ));
+            }
+            let files = std::fs::read_dir(&distributions)
+                .map_err(|e| format!("{}: {e}", distributions.display()))?
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+                .collect::<Vec<_>>();
+            if files.len() != 1 {
+                return Err(format!(
+                    "{subject}: expected one downloaded distribution for {requirement}, found {}",
+                    files.len()
+                ));
+            }
+            let distribution = files[0].path();
+            let sha = sha256_file(&distribution)?;
+            if let Some(expected) = &inputs.expected_sha {
+                let expected = expected.strip_prefix("sha256:").unwrap_or(expected);
+                if expected != sha {
+                    return Err(format!(
+                        "{subject}: downloaded distribution hash differs from the manifest pin — \
+                         expected sha256:{expected}, got sha256:{sha}"
+                    ));
+                }
+            }
+            (distribution.display().to_string(), Some(sha))
         }
         "git" => {
             let repo = inputs
@@ -246,13 +285,16 @@ fn prepare_python(
                 .repo
                 .as_deref()
                 .ok_or_else(|| format!("{subject}: source kind git declares no repo"))?;
-            format!("git+{repo}@{pin}")
+            (format!("git+{repo}@{pin}"), None)
         }
-        _ => String::new(),
+        _ => (String::new(), None),
     };
     if !installed.is_empty() {
         let marker = dir.join(".installed");
-        let want = format!("{installed}\n");
+        let want = format!(
+            "{installed}\n{}\n",
+            distribution_sha.as_deref().unwrap_or("")
+        );
         if std::fs::read_to_string(&marker).unwrap_or_default() != want {
             let out = std::process::Command::new(&pip)
                 .args(["install", "--quiet", &installed])
@@ -274,12 +316,28 @@ fn prepare_python(
                 venv_python.display().to_string(),
                 inputs.entry.display().to_string(),
             ],
-            resolved_sha: None,
+            resolved_sha: distribution_sha.map(|sha| format!("sha256:{sha}")),
             combinations: 1,
             cache_key,
         },
         dir,
     ))
+}
+
+fn sha256_file(path: &Path) -> Result<String, String> {
+    let mut file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 65_536];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
 }
 
 /// Fetch the library sources at the manifest's pin, returning the checkout

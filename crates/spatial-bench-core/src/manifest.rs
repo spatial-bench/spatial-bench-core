@@ -58,11 +58,11 @@ pub struct Source {
     /// Mandatory: results are only comparable over time if the exact built
     /// revision is recorded. See the design's pinning-and-provenance section.
     pub pinned_ref: String,
-    /// The exact commit the ref must resolve to . Git tags are mutable: a
-    /// moved tag would otherwise compile different code under the same ref
-    /// name, detectable only after the fact in the run header. Declared here,
-    /// the build refuses anything else — "detectable" becomes "refused".
-    /// Optional: without it the build proceeds and the sha is recorded.
+    /// For git sources, the exact commit the ref must resolve to. For PyPI
+    /// sources, the SHA-256 of the selected wheel or source distribution
+    /// (`sha256:<hex>` accepted). Declared here, the build refuses a different
+    /// artifact rather than merely recording that it changed afterwards.
+    /// Optional: without it the build records the resolved digest.
     pub sha: Option<String>,
 }
 
