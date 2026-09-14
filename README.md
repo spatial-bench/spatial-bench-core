@@ -1,45 +1,44 @@
 # spatial-bench
 
-Tag-addressed, library-agnostic benchmarking for spatial indexes.
+spatial-bench measures spatial-index libraries with explicit workload tags,
+reviewed library adapters, and recorded run provenance. This repository contains
+the engine, command-line tools, input generator, and result collation code.
 
-A benchmark data point is identified by its **tags** and nothing else — no name
-is ever parsed to recover what was measured. One selector expression both
-chooses which cases run and pins which axes are swept:
+**Understand the results:** start with the
+[reading guide](https://spatial-bench.org/guide)
+and [methodology](https://spatial-bench.org/methodology).
+**Contribute:** start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Run a small comparison
+
+Follow [development setup](docs/development.md) to build the CLI and companion
+generator and select the bencher catalog. Then inspect one workload:
+
+```sh
+spatial-bench list --select 'impl=kdtree,query=exact_nn,axis=f64,k=1,tree_size=2^16,query_count=100' --format tags
 ```
-spatial-bench run --select 'impl=kiddo_v6,query=exact_nn,axis=f64,k=1|5|20,tree_size=2^20..2^26'
-```
 
-`spatial-bench` with no arguments opens an interactive picker that offers only
-values which keep the selection non-empty, then prints the non-interactive
-command above so any run is reproducible in CI.
+The same selector can be passed to `run`. The
+[worked benchmark guide](docs/running-benchmarks.md) covers planning, execution,
+output, and the distinction between a local check and a submission.
 
-## Two things shape the design
+## Project organization
 
-**Every subject is vendored — in the bencher repo.** Manifests, drivers and
-shims for every library under test live in
-[spatial-bench-benchers](https://github.com/sdd/spatial-bench-benchers), a
-separate reviewed catalog, including for libraries whose authors maintain this
-one. A subject that declares what is measured about itself can flatter itself;
-a comparison whose subjects wrote their own rules cannot be shown to be fair.
-The cost is that the catalog lags its subjects by a review cycle. 
-relocated the catalog out of this engine, which now carries no subject
-knowledge at all: point `--subjects` (or `SPATIAL_BENCH_SUBJECTS`) at a
-bencher checkout.
+| Repository | Responsibility |
+| --- | --- |
+| [spatial-bench-core](https://github.com/spatial-bench/spatial-bench-core) | Catalog validation, selection, preparation, measurement contracts, input generation, collation |
+| [spatial-bench-benchers](https://github.com/spatial-bench/spatial-bench-benchers) | Library manifests, source pins, drivers, Standard Corpus selections |
+| [spatial-bench-results](https://github.com/spatial-bench/spatial-bench-results) | Reviewed run documents, machine records, published database snapshots |
+| [spatial-bench-web](https://github.com/spatial-bench/spatial-bench-web) | Public explanations and the results explorer |
 
-**The engine owns the harness.** Measurement methodology — point generation,
-seeds, what sits inside the timed region — is the same code for every subject.
-A library contributes its public API and nothing else, so a library that has
-never heard of this project is as measurable as one that has.
+A case becomes a measured point when all its parameters are resolved. Its tag
+map describes the workload; its run supplies the machine and software context.
+Selectors filter cases and constrain parameter sweeps without parsing benchmark
+names. See [architecture](docs/design.md) and [technical reference](docs/reference.md).
 
-See [docs/design.md](docs/design.md).
-
-## Status
-
-Working: catalog loading, the selector language, the interactive picker,
-`list` / `describe` / `subjects` / `conform`, machine fingerprinting,
-two-phase driver generation with cached builds, executing runs (criterion and
-perf runners), run documents under `~/.local/share/spatial-bench/runs/`.
-
-Not yet implemented: charting, `submit`, exec drivers for non-rust subjects
-(python, cxx), and dataset submission.
+The implemented pipeline supports Rust drivers, C++ and Python exec drivers,
+latency and Linux perf runs, registration conformance, local charting, result
+submission, and SQLite collation. Coverage depends on the checked-out manifests
+and drivers; published measurements are a further subset. Shared inputs and
+contracts make comparisons auditable, but driver timing and statistical
+procedures still require review, particularly across languages.
