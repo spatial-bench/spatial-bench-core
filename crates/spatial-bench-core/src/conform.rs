@@ -11,18 +11,14 @@
 //! Conform builds but measures nothing, so unlike a run it does not require a
 //! machine fingerprint: it makes no claim about numbers, only about coverage.
 
-use crate::adapter::{self, Adapter};
+use crate::adapter;
 use crate::case::Case;
 use crate::catalog::Catalog;
-use crate::toolchain::{self, Version};
+use crate::toolchain;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// Conform's inputs — the same policy the run pipeline resolves, mirrored here
-/// rather than borrowed from `run.rs` so the two modules stay independently
-/// editable. The mirrored helpers below must stay semantically identical to
-/// their `run.rs` counterparts: conform's whole value is checking the build a
-/// run would actually make.
+/// Inputs for checking drivers through the shared source resolution and build path.
 pub struct ConformConfig<'a> {
     pub catalog: &'a Catalog,
     /// Check one subject; every subject that declares cases when `None`.
@@ -43,9 +39,6 @@ pub type CaseKey = Vec<(String, String)>;
 #[derive(Debug)]
 pub struct SubjectConformance {
     pub subject: String,
-    /// False when the subject was skipped (no buildable driver yet).
-    pub checked: bool,
-    pub skipped_reason: Option<String>,
     /// Manifest cases whose compile-time key the driver contains.
     pub manifest_cases: usize,
     /// Registrations the driver listed.
@@ -57,10 +50,8 @@ pub struct SubjectConformance {
 }
 
 impl SubjectConformance {
-    /// A skipped subject is not a match, but it is not a drift either: the
-    /// report distinguishes the two, and the caller decides how to exit.
     pub fn is_match(&self) -> bool {
-        self.checked && self.missing_in_driver.is_empty() && self.extra_in_driver.is_empty()
+        self.missing_in_driver.is_empty() && self.extra_in_driver.is_empty()
     }
 }
 
@@ -70,10 +61,9 @@ pub struct ConformReport {
 }
 
 impl ConformReport {
-    /// Every *checked* subject matches. A skipped subject is neither a match
-    /// nor a drift — there was nothing to check — so it does not fail conform.
+    /// Every checked subject matches its manifest.
     pub fn all_match(&self) -> bool {
-        self.subjects.iter().all(|s| !s.checked || s.is_match())
+        self.subjects.iter().all(SubjectConformance::is_match)
     }
 }
 
@@ -107,7 +97,18 @@ pub fn conform(config: &ConformConfig<'_>) -> Result<ConformReport, String> {
         let Some(first) = cases.first() else {
             continue;
         };
-        let request = subject_request(config, subject, first, &toolchain)?;
+        let request = crate::resolve::subject_request(
+            &crate::resolve::Inputs {
+                catalog,
+                engine_root: config.engine_root.as_ref(),
+                subject_paths: config.subject_paths,
+            },
+            subject,
+            first,
+            &config.build_root,
+            toolchain,
+            catalog.rustflags(subject),
+        )?;
         let prepared = adapter::prepare(&request, &cases).map_err(|e| e.to_string())?;
         // adapter::list compiles the rust driver (conform claims coverage, so
         // the binary must build) or reuses the exec environment built above;
@@ -123,8 +124,6 @@ pub fn conform(config: &ConformConfig<'_>) -> Result<ConformReport, String> {
         let (missing_in_driver, extra_in_driver) = compare_sets(&expected, &actual);
         subjects.push(SubjectConformance {
             subject: subject.clone(),
-            checked: true,
-            skipped_reason: None,
             manifest_cases: expected.len(),
             driver_registrations: actual.len(),
             missing_in_driver,
@@ -164,96 +163,6 @@ fn compare_sets(expected: &[CaseKey], actual: &[CaseKey]) -> (Vec<CaseKey>, Vec<
         .cloned()
         .collect();
     (missing, extra)
-}
-
-// ---- mirrors of run.rs's source resolution -------------------------------
-//
-// These are line-for-line the same policy run.rs applies (its versions are
-// private to that module, which is read-only for conform). A divergence here
-// would make conform check a build that `run` does not make, so any change to
-// run.rs's helpers must be mirrored — the tests pin the observable contract.
-
-fn subject_request(
-    config: &ConformConfig<'_>,
-    subject: &str,
-    first_case: &Case,
-    toolchain: &Version,
-) -> Result<adapter::SubjectRequest, String> {
-    let codegen = match first_case.adapter {
-        Adapter::RustCodegen => {
-            let inputs = crate::resolve::Inputs {
-                catalog: config.catalog,
-                engine_root: config.engine_root.as_ref(),
-                subject_paths: config.subject_paths,
-            };
-            let driver_crate = first_case
-                .driver_crate
-                .clone()
-                .ok_or_else(|| format!("{subject} declares no driver crate"))?;
-            let (driver_source, driver_rev) =
-                crate::resolve::driver_source(&inputs, subject, &driver_crate)?;
-            let subject_source = crate::resolve::subject_source(&inputs, subject)?;
-            let subject_rev = match config.subject_paths.get(subject) {
-                // A working tree has no revision. Naming it as such keeps two
-                // builds from sharing a cache key across an edit.
-                Some(path) => format!("worktree:{}", path.display()),
-                None => config.catalog.pinned_ref(subject).unwrap_or_default(),
-            };
-            Some(adapter::CodegenInputs {
-                driver_crate,
-                driver_macro: first_case
-                    .driver_macro
-                    .clone()
-                    .ok_or_else(|| format!("{subject} declares no driver macro"))?,
-                driver_source,
-                driver_rev,
-                subject_crate: crate::vocab::namespace_of(subject).to_owned(),
-                subject_source,
-                subject_rev,
-                features: config.catalog.features(subject),
-                rustflags: config.catalog.rustflags(subject),
-            })
-        }
-        _ => None,
-    };
-    let exec = match first_case.adapter {
-        crate::adapter::Adapter::Exec => {
-            let build = config.catalog.build(subject).ok_or_else(|| {
-                format!("{subject} declares the exec adapter but no build recipe")
-            })?;
-            let manifest_dir = config
-                .catalog
-                .manifest_dir(subject)
-                .ok_or_else(|| format!("{subject} has no manifest directory"))?;
-            let entry = manifest_dir.join(
-                first_case
-                    .driver_entry
-                    .as_deref()
-                    .ok_or_else(|| format!("{subject} declares no driver entry"))?,
-            );
-            Some(crate::exec::ExecInputs {
-                manifest_dir,
-                lang: first_case
-                    .driver_lang
-                    .clone()
-                    .ok_or_else(|| format!("{subject} declares no driver language"))?,
-                entry,
-                build,
-                source: config.catalog.source_full(subject)?,
-                expected_sha: config.catalog.expected_sha(subject),
-            })
-        }
-        _ => None,
-    };
-    Ok(adapter::SubjectRequest {
-        subject: subject.to_owned(),
-        adapter: first_case.adapter,
-        build_root: config.build_root.clone(),
-        toolchain: *toolchain,
-        engine_root: config.engine_root.clone(),
-        exec,
-        codegen,
-    })
 }
 
 #[cfg(test)]

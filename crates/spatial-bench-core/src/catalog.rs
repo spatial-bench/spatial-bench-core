@@ -39,12 +39,12 @@ pub struct SubjectFacts {
     pub features: Vec<String>,
     pub min_rustc: Option<String>,
     pub rustflags: Option<String>,
-    /// One per [[driver]] block, each scoped to a semver range of the
+    /// One per `[[driver]]` block, each scoped to a semver range of the
     /// library under test. The pin's version selects which one runs.
     pub drivers: Vec<DriverFacts>,
 }
 
-/// The build-relevant slice of one [[driver]] block.
+/// The build-relevant slice of one `[[driver]]` block.
 #[derive(Clone, Debug)]
 pub struct DriverFacts {
     pub name: String,

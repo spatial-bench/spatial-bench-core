@@ -184,7 +184,7 @@ fn main() -> ExitCode {
 /// Order: an explicit `--engine-src`/`SPATIAL_BENCH_ENGINE_SRC` checkout, then
 /// the source tree this binary was compiled from (a dev build). An installed
 /// `cargo install` binary has neither, so it falls back to published crates
-/// for drivers — see [`driver_source`] — and still needs a subjects dir, since
+/// for drivers — see [`spatial_bench_core::resolve::driver_source`] — and still needs a subjects dir, since
 /// manifests are data rather than code and are not fetched from a registry.
 fn engine_root(cli: &Cli) -> Option<PathBuf> {
     if let Some(raw) = &cli.engine_src {
@@ -332,14 +332,6 @@ fn cmd_conform(cli: &Cli, subject: Option<&str>) -> Result<(), String> {
     };
     let report = spatial_bench_core::conform::conform(&config)?;
     for s in &report.subjects {
-        if !s.checked {
-            println!(
-                "{:<20} skipped — {}",
-                s.subject,
-                s.skipped_reason.as_deref().unwrap_or_default()
-            );
-            continue;
-        }
         if s.is_match() {
             println!(
                 "{:<20} {} manifest cases, {} driver registrations — match",
@@ -821,24 +813,9 @@ fn strip_nulls(value: &Value) -> Value {
 
 /// A timestamp suitable for a branch name: YYYYMMDD-HHMMSS.
 fn chrono_like_timestamp() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let days = secs / 86_400;
-    let (h, m, s) = ((secs % 86_400) / 3600, (secs % 3600) / 60, secs % 60);
-    // Hinnant's civil-from-days.
-    let z = days as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let mth = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    let yr = if mth <= 2 { y + 1 } else { y };
-    format!("{yr:04}{mth:02}{d:02}-{h:02}{m:02}{s:02}")
+    spatial_bench_core::schema::utc_timestamp()
+        .replace(['-', ':', 'Z'], "")
+        .replace('T', "-")
 }
 
 fn cmd_machine(explain: bool) -> Result<(), String> {

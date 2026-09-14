@@ -392,77 +392,18 @@ fn subject_request(
         engine_root: config.engine_root.as_ref(),
         subject_paths: config.subject_paths,
     };
-    let exec_inputs = match first_case.adapter {
-        // an exec subject's driver is built by the language builder,
-        // from the manifest's own recipe and pin. The builder verifies the
-        // library sha itself, so the run-level sha enforcement is skipped.
-        crate::adapter::Adapter::Exec => {
-            let build = config.catalog.build(subject).ok_or_else(|| {
-                format!("{subject} declares the exec adapter but no build recipe")
-            })?;
-            let entry = config
-                .catalog
-                .manifest_dir(subject)
-                .ok_or_else(|| format!("{subject} has no manifest directory"))?
-                .join(
-                    first_case
-                        .driver_entry
-                        .as_deref()
-                        .ok_or_else(|| format!("{subject} declares no driver entry"))?,
-                );
-            Some(crate::exec::ExecInputs {
-                manifest_dir: config
-                    .catalog
-                    .manifest_dir(subject)
-                    .ok_or_else(|| format!("{subject} has no manifest directory"))?,
-                lang: first_case
-                    .driver_lang
-                    .clone()
-                    .ok_or_else(|| format!("{subject} declares no driver language"))?,
-                entry,
-                build,
-                source: config.catalog.source_full(subject)?,
-                expected_sha: config.catalog.expected_sha(subject),
-            })
-        }
-        _ => None,
+    let rustflags = match first_case.adapter {
+        crate::adapter::Adapter::RustCodegen => isa_resolved_rustflags(config, subject)?,
+        crate::adapter::Adapter::Exec => None,
     };
-    let codegen = match first_case.adapter {
-        crate::adapter::Adapter::RustCodegen => {
-            let driver_crate = first_case
-                .driver_crate
-                .clone()
-                .ok_or_else(|| format!("{subject} declares no driver crate"))?;
-            let (driver_source, driver_rev) =
-                crate::resolve::driver_source(&inputs, subject, &driver_crate)?;
-            let subject_source = crate::resolve::subject_source(&inputs, subject)?;
-            let subject_rev = crate::resolve::subject_rev(&inputs, subject);
-            Some(crate::adapter::CodegenInputs {
-                driver_crate,
-                driver_macro: first_case
-                    .driver_macro
-                    .clone()
-                    .ok_or_else(|| format!("{subject} declares no driver macro"))?,
-                driver_source,
-                driver_rev,
-                subject_crate: crate::vocab::namespace_of(subject).to_owned(),
-                subject_source,
-                subject_rev,
-                features: config.catalog.features(subject),
-                rustflags: isa_resolved_rustflags(config, subject)?,
-            })
-        }
-        _ => None,
-    };
-    Ok(crate::adapter::SubjectRequest {
-        subject: subject.to_owned(),
-        adapter: first_case.adapter,
-        build_root: config.build_root.clone(),
-        toolchain: toolchain.copied().unwrap_or(Version(0, 0, 0)),
-        engine_root: config.engine_root.clone(),
-        exec: exec_inputs,
-        codegen,
-    })
+    crate::resolve::subject_request(
+        &inputs,
+        subject,
+        first_case,
+        &config.build_root,
+        toolchain.copied().unwrap_or(Version(0, 0, 0)),
+        rustflags,
+    )
 }
 
 /// Everything the run header records, gathered by [`execute`] and handed to
@@ -626,6 +567,23 @@ mod tests {
         assert_eq!(kiddo.subject, "kiddo");
         // Two scalars over one stem and one leaf: two monomorphisations.
         assert_eq!(kiddo.combinations, 2);
+    }
+
+    #[test]
+    fn shared_request_keeps_the_runs_selected_isa_flags() {
+        let catalog = catalog();
+        let paths = BTreeMap::new();
+        for (isa, flags) in [
+            ("native", "-C target-cpu=native"),
+            ("avx512", "-C target-cpu=x86-64-v4"),
+        ] {
+            let selection = SelectorSet::parse_all([format!("impl=kiddo,isa={isa}")]).unwrap();
+            let config = config(&catalog, &selection, Runner::Criterion, &paths);
+            let cases = catalog.matching(&selection);
+            let request = subject_request(&config, "kiddo", cases[0], None).unwrap();
+            assert_eq!(request.codegen.unwrap().rustflags.as_deref(), Some(flags));
+            assert!(request.exec.is_none());
+        }
     }
 
     /// exec subjects plan through their language builder — the plan

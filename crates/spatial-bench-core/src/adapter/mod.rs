@@ -255,12 +255,6 @@ pub fn list(prepared: &Prepared) -> Result<Vec<Vec<(String, String)>>, RunError>
 /// Why a subject's share of a run could not be prepared or executed.
 #[derive(Debug)]
 pub enum RunError {
-    /// The adapter is known but its engine side does not exist yet.
-    NotImplemented {
-        subject: String,
-        adapter: Adapter,
-        what: &'static str,
-    },
     /// A manifest invariant the loader should have caught; defensive only.
     BadManifest {
         subject: String,
@@ -291,15 +285,6 @@ impl From<crate::harness::HarnessError> for RunError {
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RunError::NotImplemented {
-                subject,
-                adapter,
-                what,
-            } => write!(
-                f,
-                "cannot run {subject}: the `{}` adapter is not implemented yet — {what}",
-                adapter.as_str()
-            ),
             RunError::BadManifest { subject, what } => {
                 write!(f, "{subject}'s manifest is invalid: {what}")
             }

@@ -106,3 +106,85 @@ pub fn subject_rev(inputs: &Inputs<'_>, subject: &str) -> String {
         None => inputs.catalog.pinned_ref(subject).unwrap_or_default(),
     }
 }
+
+/// Assemble a subject's build request for runs and conformance checks.
+/// Callers resolve Rust flags according to their selection policy.
+pub(crate) fn subject_request(
+    inputs: &Inputs<'_>,
+    subject: &str,
+    first_case: &crate::case::Case,
+    build_root: &std::path::Path,
+    toolchain: crate::toolchain::Version,
+    rustflags: Option<String>,
+) -> Result<crate::adapter::SubjectRequest, String> {
+    let exec_inputs = match first_case.adapter {
+        // an exec subject's driver is built by the language builder,
+        // from the manifest's own recipe and pin. The builder verifies the
+        // library sha itself, so the run-level sha enforcement is skipped.
+        crate::adapter::Adapter::Exec => {
+            let build = inputs.catalog.build(subject).ok_or_else(|| {
+                format!("{subject} declares the exec adapter but no build recipe")
+            })?;
+            let entry = inputs
+                .catalog
+                .manifest_dir(subject)
+                .ok_or_else(|| format!("{subject} has no manifest directory"))?
+                .join(
+                    first_case
+                        .driver_entry
+                        .as_deref()
+                        .ok_or_else(|| format!("{subject} declares no driver entry"))?,
+                );
+            Some(crate::exec::ExecInputs {
+                manifest_dir: inputs
+                    .catalog
+                    .manifest_dir(subject)
+                    .ok_or_else(|| format!("{subject} has no manifest directory"))?,
+                lang: first_case
+                    .driver_lang
+                    .clone()
+                    .ok_or_else(|| format!("{subject} declares no driver language"))?,
+                entry,
+                build,
+                source: inputs.catalog.source_full(subject)?,
+                expected_sha: inputs.catalog.expected_sha(subject),
+            })
+        }
+        _ => None,
+    };
+    let codegen = match first_case.adapter {
+        crate::adapter::Adapter::RustCodegen => {
+            let driver_crate = first_case
+                .driver_crate
+                .clone()
+                .ok_or_else(|| format!("{subject} declares no driver crate"))?;
+            let (driver_source, driver_rev) = driver_source(inputs, subject, &driver_crate)?;
+            let subject_source = subject_source(inputs, subject)?;
+            let subject_rev = subject_rev(inputs, subject);
+            Some(crate::adapter::CodegenInputs {
+                driver_crate,
+                driver_macro: first_case
+                    .driver_macro
+                    .clone()
+                    .ok_or_else(|| format!("{subject} declares no driver macro"))?,
+                driver_source,
+                driver_rev,
+                subject_crate: crate::vocab::namespace_of(subject).to_owned(),
+                subject_source,
+                subject_rev,
+                features: inputs.catalog.features(subject),
+                rustflags,
+            })
+        }
+        _ => None,
+    };
+    Ok(crate::adapter::SubjectRequest {
+        subject: subject.to_owned(),
+        adapter: first_case.adapter,
+        build_root: build_root.to_path_buf(),
+        toolchain,
+        engine_root: inputs.engine_root.cloned(),
+        exec: exec_inputs,
+        codegen,
+    })
+}
