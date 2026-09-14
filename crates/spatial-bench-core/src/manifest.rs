@@ -216,7 +216,7 @@ pub struct CaseDecl {
     pub tags: BTreeMap<String, toml::Value>,
     #[serde(default)]
     pub params: BTreeMap<String, ParamDecl>,
-    /// Which [[driver]] block this case runs under. Required once the
+    /// Which `[[driver]]` block this case runs under. Required once the
     /// manifest declares more than one driver; with a single driver it may
     /// be omitted.
     #[serde(default)]

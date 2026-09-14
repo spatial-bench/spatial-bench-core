@@ -13,25 +13,16 @@ use std::path::Path;
 
 /// One run document's metadata, as far as the chart cares.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // the front-end contract: the fields are the schema
 pub struct RunMeta {
-    pub run_id: String,
-    pub started_at: String,
     pub runner: String,
-    pub machine_hash: String,
 }
 
-/// A selected measurement: which series it belongs to, its x position, the
-/// metric value, and the CI bounds when the document carried them.
+/// A measurement and its tags, with CI bounds when the document carried them.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // series/x/run_id are the front-end contract
 pub struct Measurement {
-    pub series: String,
-    pub x: f64,
     pub y: f64,
     pub lower: Option<f64>,
     pub upper: Option<f64>,
-    pub run_id: String,
     /// Which metric this measurement is — the chart plots one.
     pub metric_name: String,
     /// The point's full tag map, for selector matching and series/x lookup.
@@ -77,23 +68,8 @@ pub fn load_document(path: &Path) -> Result<LoadedDoc, LoadError> {
         .get("run")
         .ok_or_else(|| bad("missing run".to_owned()))?;
     let meta = RunMeta {
-        run_id: run
-            .get("run_id")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-        started_at: run
-            .get("started_at")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned(),
         runner: run
             .get("runner")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-        machine_hash: run
-            .get("machine_hash")
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned(),
@@ -116,15 +92,9 @@ pub fn load_document(path: &Path) -> Result<LoadedDoc, LoadError> {
         };
         for (name, m) in metrics {
             measurements.push(Measurement {
-                series: tags
-                    .get("impl")
-                    .map(ToString::to_string)
-                    .unwrap_or_default(),
-                x: 0.0,
                 y: m.get("point").and_then(Value::as_f64).unwrap_or(f64::NAN),
                 lower: m.get("lower").and_then(Value::as_f64),
                 upper: m.get("upper").and_then(Value::as_f64),
-                run_id: meta.run_id.clone(),
                 metric_name: name.clone(),
                 tags: tags.clone(),
             });
