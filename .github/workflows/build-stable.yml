@@ -27,7 +27,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
 
       - name: Install `stable` Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           components: rustfmt, clippy
 
@@ -46,7 +46,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
 
       - name: Install `stable` Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
@@ -72,7 +72,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
 
       - name: Install `stable` Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
 
       - name: Checkout bencher repo (subjects + driver crates)
         uses: actions/checkout@v4
