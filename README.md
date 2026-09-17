@@ -1,45 +1,32 @@
 # spatial-bench
 
-Tag-addressed, library-agnostic benchmarking for spatial indexes.
+spatial-bench measures spatial-index libraries on specified workloads. The engine
+builds pinned libraries, runs their benchmark drivers and records results with
+machine and source information.
 
-A benchmark data point is identified by its **tags** and nothing else — no name
-is ever parsed to recover what was measured. One selector expression both
-chooses which cases run and pins which axes are swept:
+To explore published measurements, start with the
+[reading guide](https://spatial-bench.org/guide) and
+[results explorer](https://spatial-bench.org/explore). The
+[methodology](https://spatial-bench.org/methodology) defines the measurements.
 
-```
-spatial-bench run --select 'impl=kiddo_v6,query=exact_nn,axis=f64,k=1|5|20,tree_size=2^20..2^26'
-```
+## Run a benchmark
 
-`spatial-bench` with no arguments opens an interactive picker that offers only
-values which keep the selection non-empty, then prints the non-interactive
-command above so any run is reproducible in CI.
+[Set up the engine and catalog](docs/development.md), then
+[run a small nearest-neighbour benchmark](docs/running-benchmarks.md). The worked
+example covers selecting a workload, previewing its build and inspecting the
+result document.
 
-## Two things shape the design
+## Contribute
 
-**Every subject is vendored — in the bencher repo.** Manifests, drivers and
-shims for every library under test live in
-[spatial-bench-benchers](https://github.com/sdd/spatial-bench-benchers), a
-separate reviewed catalog, including for libraries whose authors maintain this
-one. A subject that declares what is measured about itself can flatter itself;
-a comparison whose subjects wrote their own rules cannot be shown to be fair.
-The cost is that the catalog lags its subjects by a review cycle. 
-relocated the catalog out of this engine, which now carries no subject
-knowledge at all: point `--subjects` (or `SPATIAL_BENCH_SUBJECTS`) at a
-bencher checkout.
+Use [CONTRIBUTING.md](CONTRIBUTING.md) for engine development, including new
+input distributions and query types. For library adapters or version updates,
+use the [bencher contribution guide](https://github.com/spatial-bench/spatial-bench-benchers/blob/master/CONTRIBUTING.md).
 
-**The engine owns the harness.** Measurement methodology — point generation,
-seeds, what sits inside the timed region — is the same code for every subject.
-A library contributes its public API and nothing else, so a library that has
-never heard of this project is as measurable as one that has.
+## Repositories
 
-See [docs/design.md](docs/design.md).
-
-## Status
-
-Working: catalog loading, the selector language, the interactive picker,
-`list` / `describe` / `subjects` / `conform`, machine fingerprinting,
-two-phase driver generation with cached builds, executing runs (criterion and
-perf runners), run documents under `~/.local/share/spatial-bench/runs/`.
-
-Not yet implemented: charting, `submit`, exec drivers for non-rust subjects
-(python, cxx), and dataset submission.
+| Repository | Responsibility |
+| --- | --- |
+| [Core](https://github.com/spatial-bench/spatial-bench-core) | Engine, input generator, measurement contracts and collation |
+| [Benchers](https://github.com/spatial-bench/spatial-bench-benchers) | Library manifests, source pins, drivers and corpus selections |
+| [Results](https://github.com/spatial-bench/spatial-bench-results) | Run records and published database snapshots |
+| [Web](https://github.com/spatial-bench/spatial-bench-web) | Explorer and public documentation |
