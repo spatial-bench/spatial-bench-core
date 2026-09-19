@@ -246,7 +246,10 @@ pub fn execute(config: &RunConfig<'_>) -> Result<RunOutcome, String> {
         // working-tree build records the crate's real version but no revision,
         // and Source.git_dirty already marks the run for the dataset to reject.
         let pin = catalog.pinned_ref(subject).unwrap_or_default();
-        let crate_name = crate::vocab::namespace_of(subject).to_owned();
+        let crate_name = catalog
+            .source_full(subject)?
+            .package
+            .unwrap_or_else(|| crate::vocab::namespace_of(subject).to_owned());
         let built_from = crate::build::built_subject(&prepared.dir.join("Cargo.lock"), &crate_name);
 
         // a manifest-pinned sha is enforced, not merely recorded — for
