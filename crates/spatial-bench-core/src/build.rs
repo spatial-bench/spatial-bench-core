@@ -207,8 +207,22 @@ pub fn built_subject(lock: &Path, crate_name: &str) -> Option<(String, Option<St
         let sha = entry
             .get("source")
             .and_then(|v| v.as_str())
-            .and_then(|s| s.rsplit_once('#'))
-            .map(|(_, sha)| sha.to_owned());
+            .and_then(|source| {
+                if source.starts_with("registry+") {
+                    entry
+                        .get("checksum")?
+                        .as_str()
+                        .filter(|hash| {
+                            hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())
+                        })
+                        .map(|hash| format!("sha256:{hash}"))
+                } else {
+                    source
+                        .strip_prefix("git+")?
+                        .rsplit_once('#')
+                        .map(|(_, sha)| sha.to_owned())
+                }
+            });
         return Some((version, sha));
     }
     None
@@ -404,6 +418,29 @@ mod tests {
             Some(("1.0.0".to_owned(), None))
         );
         assert_eq!(built_subject(&lock, "absent"), None);
+        let checksum = "0123456789abcdef".repeat(4);
+        for (name, hash, expected) in [
+            (
+                "neighbourhood",
+                checksum.as_str(),
+                Some(format!("sha256:{checksum}")),
+            ),
+            (
+                "geo-index",
+                checksum.as_str(),
+                Some(format!("sha256:{checksum}")),
+            ),
+            ("invalid", "not-a-digest", None),
+            ("empty", "", None),
+        ] {
+            std::fs::write(&lock, format!(
+                "[[package]]\nname = {name:?}\nversion = \"0.2.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = {hash:?}\n"
+            )).unwrap();
+            assert_eq!(
+                built_subject(&lock, name),
+                Some(("0.2.0".to_owned(), expected))
+            );
+        }
         std::fs::remove_dir_all(&tmp).ok();
     }
 
