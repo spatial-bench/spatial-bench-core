@@ -1,61 +1,74 @@
 # Add a query type
 
-Begin with an operation definition that each participating library can implement.
-Use that definition to choose the query tag and driver calls.
+Every query type begins as an operation definition that each participating library
+is able to implement. Settle that definition first, because it determines the
+vocabulary tag the query is filed under and the shape of the calls each driver
+makes.
 
 ## Define semantics and timing
 
-Specify the metric and distance units, cardinality and ordering. For a radius
-operation, define its boundary and whether the supplied threshold is a distance
-or squared distance. Include behavior for empty results, duplicate points,
-ties and fewer than `k` eligible points. Approximate queries need an explicit
-error or recall criterion.
+The definition needs to cover the metric and its distance units, how many results
+are returned and in what order. For a radius operation, state the boundary
+convention and whether the supplied threshold is a distance or a squared distance.
+Say what happens when the result is empty, when points are duplicated or tied, and
+when fewer than `k` points are eligible. Approximate queries additionally need an
+explicit error or recall criterion.
 
-State whether the operation uses individual probes or a bulk API, its thread
-policy, and reusable preprocessing. Mark which allocations, result traversal
-and sorting belong inside timing. Define the denominator: a query loop divides
-by probes executed, not neighbours returned. Construction/update operations
-need their own timing boundary and units.
+Timing is part of the definition, not an implementation afterthought. Decide
+whether the operation is expressed as individual probes or a bulk API call, what
+its thread policy is, and whether any preprocessing can be reused across queries.
+Then mark exactly which costs fall inside the timed region: allocations, result
+traversal and sorting in particular. The denominator matters too: a query loop
+divides by the probes it executed, never by the number of neighbours returned.
+Construction and update operations need their own timing boundary and units
+rather than reusing the query one.
 
 ## Implement the operation
 
 Add the query name to `UNIVERSAL` in
 [vocab.rs](../crates/spatial-bench-core/src/vocab.rs). Reuse existing parameters
-when their semantics fit. New parameters need compatible
-[selection and result handling](reference.md#source-contracts).
+wherever their semantics already fit; genuinely new parameters have to be
+compatible with [selection and result handling](reference.md#source-contracts).
 
-Implement the operation in each intended bencher driver, then add its manifest
-cases. Declare the supported dimensions, metrics and call shapes, marking axes
-that require compile-time specialization. Follow the
+Implement the operation in each bencher driver that should support it, then add the
+corresponding manifest cases. Those cases declare the supported dimensions,
+metrics and call shapes, and must mark any axis that requires compile-time
+specialization. The
 [driver contract](https://github.com/spatial-bench/spatial-bench-benchers/blob/master/docs/driver-contract.md)
-for transport and measurement.
+defines the transport and measurement rules to follow.
 
 ## Check answers and measurements
 
 Leave a runnable known-answer or reference check in the relevant driver's tests.
-Use a tiny input with cases that distinguish your semantics: for example a point
-exactly on the radius, tied distances and an empty result. Compare IDs,
-distances and ordering while allowing every valid answer under the defined tie
-rule. Check approximation against exact answers using its stated criterion.
-Keep correctness checks outside the timer.
+A tiny input is enough if it distinguishes your semantics: a point exactly on the
+radius boundary, tied distances, and an empty result. Compare identifiers,
+distances and ordering, allowing for every answer that is valid under your stated
+tie rule, and check approximation against exact answers using its own criterion.
+Keep all of this outside the timer.
 
-Run the core and driver checks, inspect selector expansion with `list`, and use
-`conform --subject NAME` to verify compile-time registrations. Then run a
-[small benchmark](running-benchmarks.md). Check its tags, units and normalization.
-Conformance compares registrations; the reference test checks returned answers.
+Run the core and driver checks, inspect the selector expansion with `list`, and use
+`conform --subject NAME` to confirm the compile-time registrations match the
+manifest. Then run a [small benchmark](running-benchmarks.md) and check its tags,
+units and normalization. The two kinds of check answer different questions:
+conformance verifies that registrations line up, while the reference test verifies
+that the queries return correct answers.
 
 ## Coordinate the changes
 
-Link core vocabulary changes with the bencher implementation PRs. Update
-`corpus.toml` when the operation belongs in the shared experiment, and describe
-its semantics in the public [methodology](https://spatial-bench.org/methodology)
-and [coverage](https://spatial-bench.org/coverage).
+Core vocabulary changes and bencher implementations have to land together, so link
+the PRs. Update `corpus.toml` if the operation belongs in the shared experiment,
+and describe the semantics on the public
+[methodology](https://spatial-bench.org/methodology) and
+[coverage](https://spatial-bench.org/coverage) pages.
 
-A new query under existing protocol fields does not by itself require a schema
-or harness version bump. Changed field meanings or structure need a compatibility
-decision for each affected contract. New metrics need result collation and chart
-support. If correcting an existing query's meaning, identify affected historical
-results with [results maintainers](https://github.com/spatial-bench/spatial-bench-results/blob/main/CONTRIBUTING.md).
+A new query that fits within the existing protocol fields does not by itself
+require a schema or harness version bump. Changing the meaning or structure of an
+existing field does, and each affected contract needs its own compatibility
+decision. New metrics also require result-collation and chart support. If you are
+correcting the meaning of an existing query, work with
+[results maintainers](https://github.com/spatial-bench/spatial-bench-results/blob/main/CONTRIBUTING.md)
+to identify the historical results that are affected.
 
-Include the operation definition and reference-check command in the PR, along
-with source revisions, the small-run command/seed and the normalization used.
+Include the operation definition and the reference-check command in the PR, along
+with the source revisions, the small-run command and seed, and the normalization
+you applied.

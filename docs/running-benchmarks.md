@@ -1,12 +1,15 @@
 # Run and inspect a benchmark
 
-This example measures exact nearest-one queries in kdtree using 65,536 uniform
-3D points and 100 query points. Complete [development setup](development.md)
-first, then run the commands from the core root in the same shell.
+This walkthrough runs one small case and then reads the document it writes: exact
+nearest-neighbour queries against kdtree, using 65,536 uniformly distributed
+three-dimensional points and 100 query points. Complete
+[development setup](development.md) first, and run the commands below from the
+core root in the same shell.
 
 ## Select one workload
 
-Use a fresh output directory so this example's result is easy to find:
+Point the run at a fresh data directory so its output is easy to find later, then
+ask the catalog what the selector matches:
 
 ```sh
 export XDG_DATA_HOME="$(mktemp -d /tmp/spatial-bench-example.XXXXXX)"
@@ -14,11 +17,12 @@ export SPATIAL_BENCH_EXAMPLE='impl=kdtree,query=exact_nn,axis=f64,k=1,tree_size=
 spatial-bench list --select "$SPATIAL_BENCH_EXAMPLE" --format json
 ```
 
-The output should contain one tag map, including `dims=3`,
-`metric=squared_euclidean` and `dataset=uniform`. These values come from the
-manifest. The selector pins the tree size and query count; omitted runtime
-parameters use their defaults. See [selector syntax](reference.md#selectors)
-for alternatives and ranges.
+You should get back a single tag map containing `dims=3`,
+`metric=squared_euclidean` and `dataset=uniform`, all of which come from the
+manifest rather than the selector. The selector pins the tree size and query
+count; any runtime parameter you leave out falls back to its default. The
+[selector syntax](reference.md#selectors) reference covers value lists, ranges and
+the other expression forms.
 
 ## Preview and run
 
@@ -27,24 +31,26 @@ spatial-bench run --select "$SPATIAL_BENCH_EXAMPLE" --dry-run
 spatial-bench run --select "$SPATIAL_BENCH_EXAMPLE" --random-seed 42 --allow-unfingerprinted
 ```
 
-The plan reports one build combination and Rust 1.89.0. On first execution,
-the runner builds the driver against the pinned kdtree release. Measurement
-requests 3 seconds of warm-up, 5 seconds of collection and 30 samples; allow
-additional time for compilation and analysis.
+The plan should report one build combination using Rust 1.89.0. On the first
+execution the runner compiles the driver against the pinned kdtree release, so
+budget time for that as well as the measurement itself, which asks for three
+seconds of warm-up, five seconds of collection and 30 samples.
 
-`--allow-unfingerprinted` allows this local check on a host without a captured
-machine fingerprint. It does not bypass a fingerprint mismatch. For measurements
-intended for publication, follow the
-[results contribution guide](https://github.com/spatial-bench/spatial-bench-results/blob/main/CONTRIBUTING.md).
+`--allow-unfingerprinted` exists so this local check can run on a host that has no
+captured machine fingerprint; it does not let a run proceed past a fingerprint
+*mismatch*. If you intend the measurement for publication, follow the
+[results contribution guide](https://github.com/spatial-bench/spatial-bench-results/blob/main/CONTRIBUTING.md)
+instead.
 
-A dry run prepares drivers. For C++ and Python this can download sources,
-compile code or create a virtual environment. Use `list` for catalog-only
-inspection.
+A dry run is not purely informational for executable drivers: it may prepare
+their environment, which for C++ and Python can mean downloading sources,
+compiling code or creating a virtual environment. Use `list` when you want to
+inspect the catalog without any preparation.
 
 ## Inspect the result
 
-The runner prints the JSON document path under
-`$XDG_DATA_HOME/spatial-bench/runs/YYYY-MM/`. Inspect it with Python:
+The runner prints the path of the JSON document it wrote under
+`$XDG_DATA_HOME/spatial-bench/runs/YYYY-MM/`. Load it with Python:
 
 ```sh
 python3 - <<'PYCODE'
@@ -67,24 +73,25 @@ print('statistics:', point.get('stats'))
 PYCODE
 ```
 
-The driver builds the index before timing, then measures repeated passes over
-the 100 queries. Estimates are divided by 100 to obtain nanoseconds per query.
-`latency_ns` contains the mean and its confidence bounds; `stats.median_ns` is
-separate. The [methodology](https://spatial-bench.org/methodology) explains how
-these relate to the plotted values.
+The driver builds the index before timing starts, then repeatedly walks all 100
+queries and divides each batch estimate by 100 to get nanoseconds per query. That
+means `latency_ns` holds a mean with its confidence bounds, while `stats.median_ns`
+is a separate statistic; the [methodology](https://spatial-bench.org/methodology)
+explains how each one relates to what the chart plots.
 
-Retain the command, seed and both checkout revisions with the result. The current
-run document omits the seed and complete engine/catalog revisions. See the
-[provenance guide](https://github.com/spatial-bench/spatial-bench-results/blob/main/docs/format-and-provenance.md)
-for the recorded fields and their interpretation.
+Keep the command, the seed and both checkout revisions alongside the result. Note
+that the run document as it currently stands does not record the seed or the
+complete engine and catalog revisions, so those have to be preserved elsewhere;
+the [provenance guide](https://github.com/spatial-bench/spatial-bench-results/blob/main/docs/format-and-provenance.md)
+covers which fields are stored and how to interpret them.
 
 ## Continue the experiment
 
-Change `tree_size=2^16` to `tree_size=2^16..2^18` and inspect the expanded
-selection before running it. To check an adapter's compile-time registrations,
-run `spatial-bench conform --subject kdtree`; this builds both scalar variants
-without testing query answers.
+Widen the range to `tree_size=2^16..2^18` and inspect the expanded selection with
+`list` before running it. To check that an adapter registers the combinations its
+manifest claims, run `spatial-bench conform --subject kdtree`; this builds both
+scalar variants but does not check that the queries return correct answers.
 
-`--runner perf` adds Linux process counters and requires perf access on the
-host. Those counters cover the complete driver process, including setup and
-warm-up. Their scope differs from the query latency timer.
+Adding `--runner perf` brings in Linux process counters and requires perf access on
+the host. Those counters cover the entire driver process, including setup and
+warm-up, so their scope is not the same as the timer around the query loop.
